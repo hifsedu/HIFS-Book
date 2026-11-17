@@ -252,7 +252,7 @@ function renderSupSelect() {
 }
 function renderSupBox() {}
 function contactsOf(sp) {
-  return Array.isArray(sp.contacts) ? sp.contacts.filter(function (c) { return c && (c.name || c.phone); }) : [];
+  return Array.isArray(sp.contacts) ? sp.contacts.filter(function (c) { return c && (c.name || c.phone || c.role); }) : [];
 }
 // 사이트 주소: http/https만 받아들이고, 앞에 https://가 없으면 붙인다
 function siteUrl(v) {
@@ -268,8 +268,9 @@ function contactsHtml(sp) {
   var list = contactsOf(sp);
   if (!list.length) return "미입력";
   return list.map(function (c) {
-    return esc(c.name || "이름 없음") + (c.phone ? ' · <a class="num" href="tel:' + esc(c.phone.replace(/[^0-9+]/g, "")) + '">' + esc(c.phone) + '</a>' : '');
-  }).join("<br>");
+    return esc(c.name || "이름 없음") + (c.phone ? ' · <a class="num" href="tel:' + esc(c.phone.replace(/[^0-9+]/g, "")) + '">' + esc(c.phone) + '</a>' : '') +
+      (c.role ? '<small class="c-role">' + esc(c.role) + '</small>' : '');
+  }).join('<span class="c-gap"></span>');
 }
 function siteHtml(sp) {
   var u = siteUrl(sp.website);
@@ -392,9 +393,11 @@ function addContactRow(c) {
   row.className = "c-row";
   row.innerHTML = '<input type="text" class="c-name" placeholder="이름 (예: 김 대리)" aria-label="담당자 이름">' +
     '<input type="text" class="c-phone" inputmode="tel" placeholder="전화" aria-label="담당자 전화">' +
-    '<button type="button" class="mini c-del" aria-label="이 담당자 지우기">지우기</button>';
+    '<button type="button" class="mini c-del" aria-label="이 담당자 지우기">지우기</button>' +
+    '<input type="text" class="c-role" placeholder="담당 업무 메모 (예: 수학 교재 주문, 세금계산서)" aria-label="담당 업무 메모">';
   row.querySelector(".c-name").value = (c && c.name) || "";
   row.querySelector(".c-phone").value = (c && c.phone) || "";
+  row.querySelector(".c-role").value = (c && c.role) || "";
   $("e-contacts").appendChild(row);
   return row;
 }
@@ -576,8 +579,8 @@ $("sup-form").addEventListener("submit", function (e) {
     $("sup-err").hidden = false; return;
   }
   var contacts = Array.prototype.map.call($("e-contacts").querySelectorAll(".c-row"), function (row) {
-    return { name: row.querySelector(".c-name").value.trim(), phone: row.querySelector(".c-phone").value.trim() };
-  }).filter(function (c) { return c.name || c.phone; });
+    return { name: row.querySelector(".c-name").value.trim(), phone: row.querySelector(".c-phone").value.trim(), role: row.querySelector(".c-role").value.trim() };
+  }).filter(function (c) { return c.name || c.phone || c.role; });
   var fields = {
     name: name, website: site, contacts: contacts,
     order_method: $("e-method").value.trim(), lead_time: $("e-lead").value.trim(), memo: $("e-memo").value.trim()
@@ -760,7 +763,7 @@ $("sample-btn").addEventListener("click", function () {
   ]);
   wsB["!cols"] = [{ wch: 26 }, { wch: 10 }, { wch: 11 }, { wch: 11 }, { wch: 18 }];
   var wsS = XLSX.utils.aoa_to_sheet([["업체명", "담당자", "사이트", "주문 방법", "납기", "메모"]].concat(suppliers.map(function (x) {
-    return [x.name, contactsOf(x).map(function (c) { return [c.name, c.phone].filter(Boolean).join(" "); }).join(" / "), x.website || "", x.order_method, x.lead_time, x.memo];
+    return [x.name, contactsOf(x).map(function (c) { return [c.name, c.phone, c.role ? "(" + c.role + ")" : ""].filter(Boolean).join(" "); }).join(" / "), x.website || "", x.order_method, x.lead_time, x.memo];
   })));
   wsS["!cols"] = [{ wch: 18 }, { wch: 30 }, { wch: 28 }, { wch: 14 }, { wch: 14 }, { wch: 26 }];
   var wb = XLSX.utils.book_new();

@@ -258,6 +258,10 @@ body.busy .primary { opacity: .6; }
 /* 담당자 여러 명, 링크 */
 .contacts { display: flex; flex-direction: column; gap: 8px; margin-bottom: 8px; }
 .c-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; gap: 8px; align-items: center; }
+.c-row { padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--sunken); }
+.c-row input.c-role { grid-column: 1 / -1; }
+small.c-role { display: block; color: var(--muted); font-size: 12.5px; }
+.c-gap { display: block; height: 6px; }
 .c-row .mini { min-height: 38px; }
 dl.info a, .help a { color: var(--accent); text-underline-offset: 3px; }
 @media (max-width: 640px) { .c-row .mini { min-height: 44px; } }
