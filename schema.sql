@@ -7,8 +7,9 @@ begin;
 create table public.suppliers (
   id           bigint generated always as identity primary key,
   name         text not null unique,
-  contact      text not null default '',
-  phone        text not null default '',
+  website      text not null default '',
+  -- 담당자 여러 명: [{"name": "김 대리", "phone": "02-000-0000"}, ...]
+  contacts     jsonb not null default '[]'::jsonb check (jsonb_typeof(contacts) = 'array'),
   order_method text not null default '',
   lead_time    text not null default '',
   memo         text not null default '',

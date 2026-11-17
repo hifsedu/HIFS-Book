@@ -187,8 +187,8 @@ function renderDetail() {
   var supHtml = sp
     ? '<dl class="info">' +
         '<dt>업체명</dt><dd><strong>' + esc(sp.name) + '</strong></dd>' +
-        '<dt>담당자</dt><dd>' + esc(sp.contact || "미입력") + '</dd>' +
-        '<dt>전화</dt><dd class="num">' + esc(sp.phone || "미입력") + '</dd>' +
+        '<dt>담당자</dt><dd>' + contactsHtml(sp) + '</dd>' +
+        '<dt>사이트</dt><dd>' + siteHtml(sp) + '</dd>' +
         '<dt>주문 방법</dt><dd>' + esc(sp.order_method || "미입력") + '</dd>' +
         '<dt>납기</dt><dd>' + esc(sp.lead_time || "미입력") + '</dd>' +
         '<dt>메모</dt><dd>' + esc(sp.memo || "미입력") + '</dd>' +
@@ -207,7 +207,7 @@ function renderDetail() {
       '<div class="d-stat"><span>누적 출고</span><b>' + fmt(t.out) + '</b></div>' +
     '</div>' +
     '<div class="d-sec"><h3>주문처</h3>' + notice + supHtml +
-      (sp && incomplete(sp) ? '<p class="help" style="margin-top:8px">이 업체의 연락처와 주문 방법이 아직 입력되지 않았습니다. <button type="button" class="linkbtn" data-editsup="' + sp.id + '">업체 정보 입력</button></p>' : '') +
+      (sp && incomplete(sp) ? '<p class="help" style="margin-top:8px">이 업체의 연락처, 사이트, 주문 방법이 아직 입력되지 않았습니다. <button type="button" class="linkbtn" data-editsup="' + sp.id + '">업체 정보 입력</button></p>' : '') +
       '<div class="field" style="margin-top:12px"><label for="d-sup" style="font-size:13px;color:var(--muted)">주문처 변경</label><select id="d-sup">' +
         '<option value="">미지정</option>' + suppliers.map(function (x) { return '<option value="' + x.id + '"' + (sp && sp.id === x.id ? " selected" : "") + '>' + esc(x.name) + '</option>'; }).join("") +
       '</select></div></div>' +
@@ -251,7 +251,31 @@ function renderSupSelect() {
   renderSupBox();
 }
 function renderSupBox() {}
-function incomplete(sp) { return !sp.phone && !sp.order_method; }
+function contactsOf(sp) {
+  return Array.isArray(sp.contacts) ? sp.contacts.filter(function (c) { return c && (c.name || c.phone); }) : [];
+}
+// 사이트 주소: http/https만 받아들이고, 앞에 https://가 없으면 붙인다
+function siteUrl(v) {
+  v = String(v || "").trim();
+  if (!v) return "";
+  if (!/^https?:\/\//i.test(v)) v = "https://" + v;
+  try {
+    var u = new URL(v);
+    return (u.protocol === "http:" || u.protocol === "https:") && u.hostname.indexOf(".") !== -1 ? u.href : "";
+  } catch (e) { return ""; }
+}
+function contactsHtml(sp) {
+  var list = contactsOf(sp);
+  if (!list.length) return "미입력";
+  return list.map(function (c) {
+    return esc(c.name || "이름 없음") + (c.phone ? ' · <a class="num" href="tel:' + esc(c.phone.replace(/[^0-9+]/g, "")) + '">' + esc(c.phone) + '</a>' : '');
+  }).join("<br>");
+}
+function siteHtml(sp) {
+  var u = siteUrl(sp.website);
+  return u ? '<a href="' + esc(u) + '" target="_blank" rel="noopener noreferrer">' + esc(sp.website) + '</a>' : "미입력";
+}
+function incomplete(sp) { return !contactsOf(sp).some(function (c) { return c.phone; }) && !sp.order_method && !sp.website; }
 function booksOf(supId) {
   return books.filter(function (b) { return (b.supplier_id || 0) === supId; }).map(function (b) {
     var t = totals(b.id);
@@ -289,6 +313,11 @@ function render() {
 }
 
 // 업체 관리 화면
+function phoneSummary(sp) {
+  var phones = contactsOf(sp).map(function (c) { return c.phone; }).filter(Boolean);
+  if (!phones.length) return "미입력";
+  return phones[0] + (phones.length > 1 ? " 외 " + (phones.length - 1) + "곳" : "");
+}
 function renderVendors() {
   var rows = suppliers.map(function (sp) { return { sp: sp, id: sp.id, list: booksOf(sp.id) }; });
   var none = booksOf(0);
@@ -299,8 +328,8 @@ function renderVendors() {
       '<td class="title"><button type="button" class="linkbtn" data-sup="' + r.id + '">' + esc(r.sp ? r.sp.name : "주문처 미지정") + '</button>' +
         (r.sp && incomplete(r.sp) ? '<span class="tag">정보 미입력</span>' : '') + '</td>' +
       (r.sp
-        ? '<td class="dim c-wide" data-label="담당자">' + esc(r.sp.contact || "미입력") + '</td>' +
-          '<td class="dim c-wide" data-label="전화">' + esc(r.sp.phone || "미입력") + '</td>' +
+        ? '<td class="dim c-wide" data-label="담당자">' + esc(contactsOf(r.sp).map(function (c) { return c.name; }).filter(Boolean).join(", ") || "미입력") + '</td>' +
+          '<td class="dim c-wide num" data-label="전화">' + esc(phoneSummary(r.sp)) + '</td>' +
           '<td class="dim c-wide" data-label="주문 방법">' + esc(r.sp.order_method || "미입력") + '</td>'
         : '<td class="dim c-wide" colspan="3">주문처를 지정하지 않은 교재</td>') +
       '<td class="r c-wide dim" data-label="담당 교재">' + fmt(r.list.length) + '종</td>' +
@@ -324,10 +353,10 @@ function renderSup() {
   $("sv-sub").textContent = "담당 교재 " + fmt(list.length) + "종 · 주문 필요 " + fmt(need.length) + "종";
   var info = sp
     ? '<div class="d-sec"><div class="sec-head"><h3>업체 정보</h3><button type="button" class="mini" data-editsup="' + sp.id + '">정보 수정</button></div>' +
-        (incomplete(sp) ? '<div class="notice low">연락처와 주문 방법이 아직 입력되지 않았습니다.</div>' : '') +
+        (incomplete(sp) ? '<div class="notice low">연락처, 사이트, 주문 방법이 아직 입력되지 않았습니다.</div>' : '') +
         '<dl class="info">' +
-        '<dt>담당자</dt><dd>' + esc(sp.contact || "미입력") + '</dd>' +
-        '<dt>전화</dt><dd class="num">' + esc(sp.phone || "미입력") + '</dd>' +
+        '<dt>담당자</dt><dd>' + contactsHtml(sp) + '</dd>' +
+        '<dt>사이트</dt><dd>' + siteHtml(sp) + '</dd>' +
         '<dt>주문 방법</dt><dd>' + esc(sp.order_method || "미입력") + '</dd>' +
         '<dt>납기</dt><dd>' + esc(sp.lead_time || "미입력") + '</dd>' +
         '<dt>메모</dt><dd>' + esc(sp.memo || "미입력") + '</dd></dl></div>'
@@ -358,14 +387,27 @@ function openSup(id) { supViewId = id; supNeedOnly = false; supCopyMsg = ""; ren
 
 // 업체 등록·수정 창
 var supEditId = null, supReturn = null;
+function addContactRow(c) {
+  var row = document.createElement("div");
+  row.className = "c-row";
+  row.innerHTML = '<input type="text" class="c-name" placeholder="이름 (예: 김 대리)" aria-label="담당자 이름">' +
+    '<input type="text" class="c-phone" inputmode="tel" placeholder="전화" aria-label="담당자 전화">' +
+    '<button type="button" class="mini c-del" aria-label="이 담당자 지우기">지우기</button>';
+  row.querySelector(".c-name").value = (c && c.name) || "";
+  row.querySelector(".c-phone").value = (c && c.phone) || "";
+  $("e-contacts").appendChild(row);
+  return row;
+}
 function openSupEdit(id, returnTo) {
   supEditId = id; supReturn = returnTo || null;
   var sp = suppliers.find(function (x) { return x.id === id; });
   $("se-title").textContent = sp ? "업체 정보 수정" : "새 업체 등록";
   $("sup-save").textContent = sp ? "수정 내용 저장하기" : "업체 등록하기";
   $("e-name").value = sp ? sp.name : "";
-  $("e-contact").value = sp ? sp.contact : "";
-  $("e-phone").value = sp ? sp.phone : "";
+  $("e-site").value = sp ? (sp.website || "") : "";
+  $("e-contacts").innerHTML = "";
+  var list = sp ? contactsOf(sp) : [];
+  (list.length ? list : [{ name: "", phone: "" }]).forEach(addContactRow);
   $("e-method").value = sp ? sp.order_method : "";
   $("e-lead").value = sp ? sp.lead_time : "";
   $("e-memo").value = sp ? sp.memo : "";
@@ -513,6 +555,13 @@ $("sup-dlg").addEventListener("click", function (e) {
   }
 });
 $("supedit-dlg").addEventListener("click", function (e) { if (e.target === $("supedit-dlg")) closeDlg("supedit-dlg"); });
+$("e-add-contact").addEventListener("click", function () { addContactRow(null).querySelector(".c-name").focus(); });
+$("e-contacts").addEventListener("click", function (e) {
+  var del = e.target.closest(".c-del");
+  if (!del) return;
+  del.closest(".c-row").remove();
+  if (!$("e-contacts").querySelector(".c-row")) addContactRow(null);
+});
 $("sup-form").addEventListener("submit", function (e) {
   e.preventDefault();
   var name = $("e-name").value.trim();
@@ -521,8 +570,16 @@ $("sup-form").addEventListener("submit", function (e) {
     $("sup-err").textContent = "같은 이름의 업체가 이미 등록되어 있습니다.";
     $("sup-err").hidden = false; return;
   }
+  var siteRaw = $("e-site").value.trim(), site = siteUrl(siteRaw);
+  if (siteRaw && !site) {
+    $("sup-err").textContent = "사이트 주소를 확인해 주세요. 예: https://www.example.com";
+    $("sup-err").hidden = false; return;
+  }
+  var contacts = Array.prototype.map.call($("e-contacts").querySelectorAll(".c-row"), function (row) {
+    return { name: row.querySelector(".c-name").value.trim(), phone: row.querySelector(".c-phone").value.trim() };
+  }).filter(function (c) { return c.name || c.phone; });
   var fields = {
-    name: name, contact: $("e-contact").value.trim(), phone: $("e-phone").value.trim(),
+    name: name, website: site, contacts: contacts,
     order_method: $("e-method").value.trim(), lead_time: $("e-lead").value.trim(), memo: $("e-memo").value.trim()
   };
   var editId = supEditId, ret = supReturn;
@@ -702,10 +759,10 @@ $("sample-btn").addEventListener("click", function () {
     ["사회 핵심 요약", "사회", 10, 0, ""]
   ]);
   wsB["!cols"] = [{ wch: 26 }, { wch: 10 }, { wch: 11 }, { wch: 11 }, { wch: 18 }];
-  var wsS = XLSX.utils.aoa_to_sheet([["업체명", "담당자", "전화", "주문 방법", "납기", "메모"]].concat(suppliers.map(function (x) {
-    return [x.name, x.contact, x.phone, x.order_method, x.lead_time, x.memo];
+  var wsS = XLSX.utils.aoa_to_sheet([["업체명", "담당자", "사이트", "주문 방법", "납기", "메모"]].concat(suppliers.map(function (x) {
+    return [x.name, contactsOf(x).map(function (c) { return [c.name, c.phone].filter(Boolean).join(" "); }).join(" / "), x.website || "", x.order_method, x.lead_time, x.memo];
   })));
-  wsS["!cols"] = [{ wch: 18 }, { wch: 10 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 26 }];
+  wsS["!cols"] = [{ wch: 18 }, { wch: 30 }, { wch: 28 }, { wch: 14 }, { wch: 14 }, { wch: 26 }];
   var wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, wsB, "교재 목록");
   XLSX.utils.book_append_sheet(wb, wsS, "등록된 업체 (참고용)");
