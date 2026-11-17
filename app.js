@@ -327,11 +327,21 @@ function dayLabel(s) {
   var d = parseYmd(s);
   return d.getFullYear() + "년 " + (d.getMonth() + 1) + "월 " + d.getDate() + "일 (" + WEEK[d.getDay()] + ")";
 }
-function dday(s) {
-  var n = Math.round((parseYmd(s) - parseYmd(today())) / 86400000);
-  if (n === 0) return { text: "오늘", cls: "low" };
-  if (n < 0) return { text: -n + "일 지남", cls: "none" };
-  return { text: "D-" + n, cls: "ok" };
+function planEnd(p) { return p.end_date && p.end_date > p.date ? p.end_date : p.date; }
+function covers(p, key) { return p.date <= key && key <= planEnd(p); }
+function daysBetween(a, b) { return Math.round((parseYmd(b) - parseYmd(a)) / 86400000); }
+function shortDay(s) { var d = parseYmd(s); return (d.getMonth() + 1) + "월 " + d.getDate() + "일 (" + WEEK[d.getDay()] + ")"; }
+function rangeLabel(p) {
+  var e = planEnd(p);
+  return e === p.date ? dayLabel(p.date) : dayLabel(p.date) + " ~ " + shortDay(e);
+}
+// 기간 일정은 시작 전에는 D-n, 기간 중에는 남은 날, 끝난 뒤에는 지난 날을 보여 준다
+function dday(p) {
+  var t = today(), e = planEnd(p);
+  if (t < p.date) return { text: "D-" + daysBetween(t, p.date), cls: "ok" };
+  if (t > e) return { text: daysBetween(e, t) + "일 지남", cls: "none" };
+  if (e === p.date) return { text: "오늘", cls: "low" };
+  return { text: t === e ? "오늘까지" : "기간 중 · " + daysBetween(t, e) + "일 남음", cls: "low" };
 }
 function planSupName(p) {
   var sp = suppliers.find(function (x) { return x.id === p.supplier_id; });
@@ -341,22 +351,30 @@ function renderCalendar() {
   var t = today(), first = new Date(calY, calM, 1), start = new Date(calY, calM, 1 - first.getDay());
   var weeks = Math.ceil((first.getDay() + new Date(calY, calM + 1, 0).getDate()) / 7);
   var byDate = {};
-  plans.forEach(function (p) { (byDate[p.date] = byDate[p.date] || []).push(p); });
+  plans.forEach(function (p) {
+    var s = parseYmd(p.date), n = Math.min(daysBetween(p.date, planEnd(p)), 92);
+    for (var k = 0; k <= n; k++) {
+      var key = ymd(new Date(s.getFullYear(), s.getMonth(), s.getDate() + k));
+      (byDate[key] = byDate[key] || []).push(p);
+    }
+  });
   $("cal-title").textContent = calY + "년 " + (calM + 1) + "월";
   var out = WEEK.map(function (w, i) { return '<div class="wd' + (i === 0 ? " sun" : "") + '">' + w + '</div>'; }).join("");
   for (var i = 0; i < weeks * 7; i++) {
     var d = new Date(start.getFullYear(), start.getMonth(), start.getDate() + i), key = ymd(d);
     var list = byDate[key] || [];
     var open = list.filter(function (p) { return !p.done; }).length;
-    var late = key < t;
+    var anyLate = list.some(function (p) { return !p.done && planEnd(p) < t; });
     out += '<button type="button" class="day' + (d.getMonth() !== calM ? " other" : "") + (key === t ? " today" : "") + (d.getDay() === 0 ? " sun" : "") +
       '" data-date="' + key + '" aria-label="' + esc(dayLabel(key)) + (list.length ? ", 일정 " + list.length + "건" : "") + '">' +
       '<span class="dn">' + d.getDate() + '</span>' +
       list.slice(0, 3).map(function (p) {
-        return '<span class="ev' + (p.done ? " done" : (late ? " late" : "")) + '">' + esc(p.title) + '</span>';
+        var cont = p.date < key && d.getDay() !== 0, after = planEnd(p) > key && d.getDay() !== 6;
+        return '<span class="ev' + (p.done ? " done" : (planEnd(p) < t ? " late" : "")) + (cont ? " cont" : "") + (after ? " more-after" : "") + '">' +
+          (cont ? "&nbsp;" : esc(p.title)) + '</span>';
       }).join("") +
       (list.length > 3 ? '<span class="more">외 ' + (list.length - 3) + '건</span>' : '') +
-      (list.length ? '<span class="cnt' + (open ? (late ? " late" : "") : " alldone") + '">' + list.length + '</span>' : '') +
+      (list.length ? '<span class="cnt' + (open ? (anyLate ? " late" : "") : " alldone") + '">' + list.length + '</span>' : '') +
       '</button>';
   }
   $("cal").innerHTML = out;
@@ -365,8 +383,8 @@ function renderCalendar() {
   $("cal-badge").hidden = due === 0;
 }
 function planLi(p, withDate) {
-  var sup = planSupName(p), dd = dday(p.date);
-  var sub = [withDate ? dayLabel(p.date) : "", sup, p.memo].filter(Boolean).join(" · ");
+  var sup = planSupName(p), dd = dday(p);
+  var sub = [withDate || planEnd(p) !== p.date ? rangeLabel(p) : "", sup, p.memo].filter(Boolean).join(" · ");
   return '<li class="' + (p.done ? "done" : "") + '">' +
     '<input type="checkbox" data-plan-done="' + p.id + '"' + (p.done ? " checked" : "") + ' aria-label="주문 완료 표시">' +
     (withDate
@@ -390,11 +408,13 @@ function resetPlanForm(supId) {
   $("pf-cancel").hidden = true;
   $("p-title").value = ""; $("p-memo").value = "";
   $("p-date").value = planDate;
+  $("p-end").value = "";
+  $("plan-err").hidden = true;
   $("p-sup").innerHTML = '<option value="">선택 안 함</option>' + suppliers.map(function (x) { return '<option value="' + x.id + '">' + esc(x.name) + '</option>'; }).join("");
   $("p-sup").value = supId ? String(supId) : "";
 }
 function renderPlanDlg() {
-  var list = plans.filter(function (p) { return p.date === planDate; });
+  var list = plans.filter(function (p) { return covers(p, planDate); });
   $("pl-title").textContent = dayLabel(planDate);
   $("pl-sub").textContent = list.length ? "일정 " + list.length + "건 · 주문을 마치면 체크해 주세요" : "아직 일정이 없습니다";
   $("pl-list").hidden = list.length === 0;
@@ -655,7 +675,7 @@ $("pl-list").addEventListener("click", function (e) {
     $("pf-save").textContent = "수정 내용 저장하기";
     $("pf-cancel").hidden = false;
     $("p-title").value = p.title; $("p-memo").value = p.memo || "";
-    $("p-date").value = p.date; $("p-sup").value = p.supplier_id ? String(p.supplier_id) : "";
+    $("p-date").value = p.date; $("p-end").value = planEnd(p) !== p.date ? planEnd(p) : ""; $("p-sup").value = p.supplier_id ? String(p.supplier_id) : "";
     $("p-title").focus();
     return;
   }
@@ -675,7 +695,12 @@ $("plan-form").addEventListener("submit", function (e) {
   e.preventDefault();
   var title = $("p-title").value.trim(), date = $("p-date").value;
   if (!title || !date) return;
-  var fields = { title: title, date: date, supplier_id: Number($("p-sup").value) || null, memo: $("p-memo").value.trim() };
+  var end = $("p-end").value;
+  if (end && end < date) {
+    $("plan-err").textContent = "끝 날짜가 시작 날짜보다 앞입니다. 날짜를 확인해 주세요.";
+    $("plan-err").hidden = false; return;
+  }
+  var fields = { title: title, date: date, end_date: end && end > date ? end : null, supplier_id: Number($("p-sup").value) || null, memo: $("p-memo").value.trim() };
   var editId = planEditId;
   save(async function () {
     if (editId) need(await db.from("order_plans").update(fields).eq("id", editId));

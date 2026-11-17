@@ -44,6 +44,8 @@ create index books_supplier_id_idx on public.books (supplier_id);
 create table public.order_plans (
   id          bigint generated always as identity primary key,
   date        date not null,
+  -- 기간 일정의 끝 날짜. 하루짜리 일정은 비워 둡니다.
+  end_date    date check (end_date is null or end_date >= date),
   title       text not null,
   supplier_id bigint references public.suppliers (id) on delete set null,
   memo        text not null default '',

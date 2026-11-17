@@ -283,6 +283,8 @@ dl.info a, .help a { color: var(--accent); text-underline-offset: 3px; }
 .cal .dn { font-family: var(--font-num); font-size: 13px; font-weight: 600; width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; }
 .cal .day.today .dn { background: var(--accent); color: var(--accent-ink); }
 .cal .ev { font-size: 12.5px; line-height: 1.35; padding: 2px 6px; border-radius: 5px; background: var(--accent-soft); color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cal .ev.cont { border-top-left-radius: 0; border-bottom-left-radius: 0; margin-left: -6px; padding-left: 12px; }
+.cal .ev.more-after { border-top-right-radius: 0; border-bottom-right-radius: 0; margin-right: -6px; }
 .cal .ev.late { background: var(--warn-soft); color: var(--warn); }
 .cal .ev.done { background: transparent; color: var(--muted); text-decoration: line-through; }
 .cal .more { font-size: 12px; color: var(--muted); padding-left: 6px; }
@@ -556,8 +558,11 @@ form label, .field > span { font-size: 13px; color: var(--muted); }
     <form class="form-grid supbox" id="plan-form" autocomplete="off">
       <h3 class="full" id="pf-head">일정 추가</h3>
       <div class="field full"><label for="p-title">내용</label><input type="text" id="p-title" required placeholder="예: 겨울특강 교재 주문"></div>
-      <div class="field"><label for="p-date">날짜</label><input type="date" id="p-date" required></div>
-      <div class="field"><label for="p-sup">업체 (선택)</label><select id="p-sup"></select></div>
+      <div class="field"><label for="p-date">시작 날짜</label><input type="date" id="p-date" required></div>
+      <div class="field"><label for="p-end">끝 날짜 (선택)</label><input type="date" id="p-end"></div>
+      <p class="hint full" style="margin:0">"이번 주 안에 주문"처럼 기간으로 잡으려면 끝 날짜를 넣어 주세요. 하루짜리 일정은 비워 둡니다.</p>
+      <div class="field full"><label for="p-sup">업체 (선택)</label><select id="p-sup"></select></div>
+      <div class="msg err full" id="plan-err" hidden></div>
       <div class="field full"><label for="p-memo">메모 (선택)</label><input type="text" id="p-memo" placeholder="예: 수학 40권, 영어 25권. 금요일까지 받아야 함"></div>
       <div class="full" style="display:flex;gap:8px;flex-wrap:wrap">
         <button type="submit" class="primary" id="pf-save" style="flex:1">일정 추가하기</button>
