@@ -20,7 +20,9 @@ create table public.suppliers (
 create table public.books (
   id          bigint generated always as identity primary key,
   title       text not null unique,
-  category    text not null default '',
+  year        smallint check (year between 1 and 3),           -- 연차: 1, 2, 3년차
+  class_type  text check (class_type in ('RT', 'ET')),           -- 수업 분류: RT 정규, ET 방과후
+  memo        text not null default '',                          -- 메모 (자유 입력)
   min_stock   integer not null default 10 check (min_stock >= 0),
   supplier_id bigint references public.suppliers (id) on delete set null,
   created_at  timestamptz not null default now()
@@ -103,8 +105,11 @@ begin
 end;
 $$;
 
-create trigger transactions_check_stock
+-- 확인은 요청이 끝나는 시점에 합니다(deferred). 입고·출고 기록을 여러 건 한 번에 지울 때
+-- 지우는 순서 때문에 잠깐 음수가 되는 경우를 오류로 보지 않기 위해서입니다.
+create constraint trigger transactions_check_stock
 after insert or update or delete on public.transactions
+deferrable initially deferred
 for each row execute function public.check_stock_not_negative();
 
 -- 6) 보안: 로그인한 계정만 읽고 쓸 수 있습니다. 로그인하지 않으면 아무것도 보이지 않습니다.

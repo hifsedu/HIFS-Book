@@ -208,7 +208,7 @@ table.fmt td.warn { color: var(--warn); }
 .filebox input { font-size: 14px; color: var(--ink); max-width: 100%; }
 .msg { font-size: 14px; border-radius: 8px; padding: 9px 12px; background: var(--sunken); color: var(--muted); }
 .msg.err { background: var(--crit-soft); color: var(--crit); }
-.done { margin: 0; padding: 10px 16px; font-size: 14px; color: var(--in); background: var(--in-soft); border-bottom: 1px solid var(--line); }
+.done { margin: 0; padding: 10px 16px; font-size: 14px; color: var(--in); background: var(--in-soft); border-radius: 10px; }
 .b-list { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: 10px; }
 .b-list li { border-bottom: 1px solid var(--line); }
 .b-list li:last-child { border-bottom: 0; }
@@ -312,6 +312,121 @@ dl.info a, .help a { color: var(--accent); text-underline-offset: 3px; }
   .cal .cnt.late { background: var(--warn-soft); color: var(--warn); }
   .cal .cnt.alldone { background: transparent; color: var(--muted); }
   .plan-list .acts .mini { min-height: 40px; }
+}
+
+/* 분류 필터, 묶어 보기 */
+.filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 10px 16px; border-bottom: 1px solid var(--line); background: var(--sunken); }
+.filters .sel { display: inline-flex; align-items: center; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); overflow: hidden; }
+.filters .sel span { font-size: 12.5px; color: var(--muted); padding: 0 4px 0 10px; white-space: nowrap; }
+.filters .sel select { border: 0; min-height: 32px; padding: 4px 8px 4px 2px; font-size: 13.5px; width: auto; background: transparent; font-weight: 600; color: var(--ink); }
+.filters .sel.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.filters .sel.on span { color: var(--accent); }
+.filters .grpby { margin-left: auto; }
+.filters .reset { font-size: 13px; font-weight: 500; }
+.tg { display: inline-block; font-size: 11.5px; font-weight: 600; padding: 0 6px; border-radius: 4px; margin-right: 4px; line-height: 1.6; vertical-align: 1px; background: var(--sunken); color: var(--muted); border: 1px solid var(--line); }
+.tg.y1 { background: #e6eefb; color: #1d55b0; border-color: transparent; }
+.tg.y2 { background: #e2f3ea; color: #14784c; border-color: transparent; }
+.tg.y3 { background: #f1e8fa; color: #6f3aa8; border-color: transparent; }
+.tg.rt, .tg.et { background: var(--surface); }
+:root[data-theme="dark"] .tg.y1, :root[data-theme="dark"] .tg.y2, :root[data-theme="dark"] .tg.y3 { background: var(--accent-soft); color: var(--accent); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .tg.y1, :root:not([data-theme="light"]) .tg.y2, :root:not([data-theme="light"]) .tg.y3 { background: var(--accent-soft); color: var(--accent); } }
+td.title small .bmemo { display: block; margin-top: 2px; max-width: 34ch; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--muted); }
+.memo-box { margin: 0; padding: 10px 12px; background: var(--sunken); border: 1px solid var(--line); border-radius: 8px; font-size: 14px; white-space: pre-wrap; overflow-wrap: anywhere; }
+@media (max-width: 640px) { td.title small .bmemo { max-width: none; } }
+tr.grp td { background: var(--sunken); padding: 9px 12px; border-bottom: 1px solid var(--line); }
+tr.grp .gname { font-weight: 700; font-size: 14px; margin-right: 10px; }
+tr.grp .gmeta { font-size: 13px; color: var(--muted); margin-right: 8px; }
+tr.grp .pill { font-size: 11.5px; margin-right: 4px; }
+.d-btns { display: flex; gap: 6px; flex: none; }
+.danger { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; border: 1px solid var(--crit-soft); border-radius: 10px; padding: 12px 14px; }
+.danger strong { font-size: 14px; color: var(--crit); }
+.danger p { margin: 2px 0 0; font-size: 13px; color: var(--muted); }
+.del-btn { border: 1px solid var(--crit); background: var(--surface); color: var(--crit); border-radius: 8px; font-size: 14px; font-weight: 600; padding: 8px 14px; cursor: pointer; }
+.del-btn.armed { background: var(--crit); color: var(--surface); }
+.mini.armed-mini { border-color: var(--crit); background: var(--crit); color: var(--surface); }
+@media (max-width: 640px) {
+  .filters { display: grid; grid-template-columns: 1fr 1fr; }
+  .filters .sel { width: 100%; }
+  .filters .sel select { flex: 1; min-height: 40px; font-size: 15px; }
+  .filters .grpby { margin-left: 0; grid-column: 1 / -1; }
+  .filters .reset { grid-column: 1 / -1; justify-self: start; }
+  table.cards tr.grp { display: block; padding: 0; }
+  table.cards tr.grp td { display: block; padding: 10px 16px; }
+}
+
+/* 입출고 내역 */
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.pickall { display: inline-flex; align-items: center; gap: 6px; font-size: 13.5px; color: var(--ink); cursor: pointer; }
+.pickall input { width: 18px; height: 18px; accent-color: var(--crit); }
+.log-foot { padding: 10px 16px; border-top: 1px solid var(--line); text-align: right; font-size: 14px; }
+.custom-range { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
+.custom-range input { width: auto; min-height: 34px; font-size: 14px; padding: 4px 8px; }
+.h-sum { margin-left: auto; font-size: 13.5px; color: var(--muted); }
+.h-sum b { font-family: var(--font-num); font-weight: 600; }
+.h-sum .in { color: var(--in); }
+.h-sum .out { color: var(--out); }
+.bulk { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 10px 16px; background: var(--crit-soft); border-bottom: 1px solid var(--line); font-size: 14px; font-weight: 600; }
+.bulk .del-btn { padding: 6px 12px; font-size: 13.5px; }
+table.hist { min-width: 720px; }
+table.hist th.c-chk, table.hist td.c-chk { width: 36px; padding-right: 0; }
+table.hist input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--crit); cursor: pointer; }
+table.hist td.h-date { white-space: nowrap; font-family: var(--font-num); font-size: 13.5px; }
+table.hist td.h-qty { font-family: var(--font-num); font-weight: 600; white-space: nowrap; }
+table.hist td.h-qty.in { color: var(--in); }
+table.hist td.h-qty.out { color: var(--out); }
+table.hist td.h-memo { color: var(--muted); font-size: 13.5px; max-width: 220px; overflow-wrap: anywhere; }
+table.hist tr.picked td { background: var(--crit-soft); }
+table.hist .gone { color: var(--muted); font-style: italic; }
+@media (max-width: 640px) {
+  .h-sum { margin-left: 0; grid-column: 1 / -1; }
+  .pickall { grid-column: 1 / -1; min-height: 36px; }
+  .custom-range { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); }
+  .custom-range input { width: 100%; min-height: 40px; font-size: 15px; }
+  table.cards.hist tr { grid-template-columns: auto minmax(0, 1fr) auto; gap: 4px 10px; }
+  table.cards.hist tr.picked { background: var(--crit-soft); }
+  table.cards.hist tr.picked td { background: transparent; }
+  table.cards.hist td.c-chk { grid-column: 1; grid-row: 1 / span 2; align-self: center; padding-right: 2px; width: auto; }
+  table.cards.hist td.h-book { grid-column: 2; grid-row: 1; font-weight: 600; }
+  table.cards.hist td.h-qty { grid-column: 3; grid-row: 1; justify-self: end; font-size: 18px; }
+  table.cards.hist td.h-date { grid-column: 2; grid-row: 2; color: var(--muted); }
+  table.cards.hist td.h-type { grid-column: 3; grid-row: 2; justify-self: end; }
+  table.cards.hist td.h-memo { grid-column: 2 / -1; max-width: none; }
+  table.cards.hist td.h-memo:empty { display: none; }
+  table.cards.hist td.h-act { grid-column: 1 / -1; margin-top: 6px; }
+  table.cards.hist td.h-act .rowbtns .mini { flex: 1; min-height: 42px; font-size: 15px; }
+  /* 탭이 4개라 휴대폰에서는 옆으로 밀어서 봅니다 */
+  .views { overflow-x: auto; scrollbar-width: none; }
+  .views::-webkit-scrollbar { display: none; }
+  .views button { white-space: nowrap; padding: 8px 12px 10px; flex: none; }
+}
+
+/* 교재 목록 */
+.bulk-help { flex-basis: 100%; margin: 0; font-size: 12.5px; font-weight: 400; color: var(--muted); }
+.bulk .ghost { padding: 6px 12px; font-size: 13.5px; }
+.bulk .ghost.armed { background: var(--warn); color: var(--surface); border-color: var(--warn); }
+table.blist { min-width: 680px; }
+table.blist th.c-chk, table.blist td.c-chk { width: 36px; padding-right: 0; }
+table.blist input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--crit); cursor: pointer; }
+table.blist td.b-num { font-family: var(--font-num); white-space: nowrap; }
+table.blist td.b-stock b { font-family: var(--font-num); font-size: 16px; font-weight: 600; margin-right: 6px; }
+table.blist tr.picked td { background: var(--crit-soft); }
+@media (max-width: 640px) {
+  table.cards.blist tr { grid-template-columns: auto minmax(0, 1fr) auto; gap: 4px 10px; }
+  table.cards.blist tr.picked { background: var(--crit-soft); }
+  table.cards.blist tr.picked td { background: transparent; }
+  table.cards.blist td.c-chk { grid-column: 1; grid-row: 1 / span 2; align-self: center; padding-right: 2px; width: auto; }
+  table.cards.blist td.title { grid-column: 2; grid-row: 1 / span 2; }
+  table.cards.blist td.b-stock { grid-column: 3; grid-row: 1; justify-self: end; }
+  table.cards.blist td.b-stock b { font-size: 20px; margin-right: 0; }
+  table.cards.blist td.b-stock .pill { display: block; margin-top: 2px; text-align: center; }
+  table.cards.blist td.sup, table.cards.blist td.b-num { grid-column: 2 / -1; font-size: 13.5px; color: var(--muted); }
+  table.cards.blist td.h-act { grid-column: 1 / -1; margin-top: 6px; }
+  table.cards.blist td.h-act .rowbtns .mini { flex: 1; min-height: 42px; font-size: 15px; }
+  .bulk { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .bulk > span, .bulk .linkbtn, .bulk-help { grid-column: 1 / -1; }
+  .bulk .linkbtn { justify-self: start; }
+  .bulk .ghost, .bulk .del-btn { width: 100%; min-height: 44px; }
+  #h-bulk .del-btn { grid-column: 1 / -1; }
 }
 
 /* 교재 추가 */
@@ -433,9 +548,12 @@ form label, .field > span { font-size: 13px; color: var(--muted); }
 
   <nav class="views" aria-label="화면 전환">
     <button type="button" data-view="stock" aria-pressed="true">재고 현황</button>
+    <button type="button" data-view="books" aria-pressed="false">교재 목록</button>
+    <button type="button" data-view="history" aria-pressed="false">입출고 내역</button>
     <button type="button" data-view="vendors" aria-pressed="false">업체 관리</button>
     <button type="button" data-view="calendar" aria-pressed="false">주문 일정<span class="tag" id="cal-badge" hidden></span></button>
   </nav>
+  <p class="done" id="done" role="status" hidden></p>
 
   <div class="view" id="view-stock">
   <section class="summary" aria-label="요약">
@@ -455,12 +573,23 @@ form label, .field > span { font-size: 13px; color: var(--muted); }
             <button type="button" data-filter="all" aria-pressed="true">전체</button>
             <button type="button" data-filter="attn" aria-pressed="false">부족·품절만</button>
           </div>
-          <input type="search" id="q" placeholder="교재명·업체 검색" aria-label="교재명 또는 업체 검색">
+          <input type="search" id="q" placeholder="교재명·메모·업체 검색" aria-label="교재명, 메모 또는 업체 검색">
           <button type="button" class="ghost" id="open-tx">입출고 기록</button>
           <button type="button" class="primary sm" id="open-add">+ 새 교재 등록</button>
         </div>
       </div>
-      <p class="done" id="done" role="status" hidden></p>
+      <div class="filters" role="group" aria-label="분류로 보기">
+        <label class="sel"><span>연차</span><select id="fl-year">
+          <option value="">전체</option><option value="1">1년차</option><option value="2">2년차</option><option value="3">3년차</option><option value="none">미지정</option>
+        </select></label>
+        <label class="sel"><span>수업</span><select id="fl-class">
+          <option value="">전체</option><option value="RT">RT (정규)</option><option value="ET">ET (방과후)</option><option value="none">미지정</option>
+        </select></label>
+        <label class="sel grpby"><span>묶어 보기</span><select id="fl-group">
+          <option value="">묶지 않음</option><option value="year">연차별</option><option value="class">수업 분류별</option>
+        </select></label>
+        <button type="button" class="linkbtn reset" id="fl-reset" hidden>조건 지우기</button>
+      </div>
       <div class="table-scroll">
         <table class="cards">
           <thead>
@@ -505,10 +634,112 @@ form label, .field > span { font-size: 13px; color: var(--muted); }
       <section class="panel" aria-labelledby="h-log">
         <div class="panel-head"><h2 id="h-log">최근 입출고</h2><span class="num" style="color:var(--muted);font-size:13px" id="log-count"></span></div>
         <ul class="log" id="log"></ul>
+        <div class="log-foot"><button type="button" class="linkbtn" id="go-history">전체 내역 보기 · 수정·삭제</button></div>
       </section>
     </div>
 
   </div>
+  </div>
+
+  <div class="view" id="view-books" hidden>
+    <section class="panel" aria-labelledby="h-books">
+      <div class="panel-head">
+        <h2 id="h-books">교재 목록</h2>
+        <div class="tools">
+          <input type="search" id="bl-q" placeholder="교재명·메모·업체 검색" aria-label="교재명, 메모 또는 업체 검색">
+          <button type="button" class="primary sm" id="bl-add">+ 새 교재 등록</button>
+        </div>
+      </div>
+      <div class="filters" role="group" aria-label="교재 거르기">
+        <label class="sel"><span>연차</span><select id="bl-year">
+          <option value="">전체</option><option value="1">1년차</option><option value="2">2년차</option><option value="3">3년차</option><option value="none">미지정</option>
+        </select></label>
+        <label class="sel"><span>수업</span><select id="bl-class">
+          <option value="">전체</option><option value="RT">RT (정규)</option><option value="ET">ET (방과후)</option><option value="none">미지정</option>
+        </select></label>
+        <label class="pickall"><input type="checkbox" id="bl-all"> 보이는 교재 모두 선택</label>
+        <span class="h-sum" id="bl-sum" role="status"></span>
+      </div>
+      <div class="bulk" id="bl-bulk" hidden>
+        <span id="bl-count"></span>
+        <button type="button" class="ghost" id="bl-discard">남은 재고 폐기 처리</button>
+        <button type="button" class="del-btn" id="bl-del">선택한 교재 삭제</button>
+        <button type="button" class="linkbtn" id="bl-clear">선택 해제</button>
+        <p class="bulk-help">폐기 처리는 남은 재고를 "폐기" 출고로 기록해 재고를 0으로 만들고, 교재와 기록은 남깁니다. 삭제는 교재와 그 입출고 기록을 모두 지웁니다.</p>
+      </div>
+      <div class="table-scroll">
+        <table class="cards blist">
+          <thead>
+            <tr>
+              <th class="c-chk"><span class="sr">선택</span></th>
+              <th>교재</th>
+              <th>주문처</th>
+              <th class="r">부족 기준</th>
+              <th class="r">현재 재고</th>
+              <th class="r">관리</th>
+            </tr>
+          </thead>
+          <tbody id="bl-rows"></tbody>
+        </table>
+        <div class="empty" id="bl-empty" hidden>조건에 맞는 교재가 없습니다.</div>
+      </div>
+    </section>
+  </div>
+
+  <div class="view" id="view-history" hidden>
+    <section class="panel" aria-labelledby="h-hist">
+      <div class="panel-head">
+        <h2 id="h-hist">입출고 내역</h2>
+        <div class="tools">
+          <div class="chips" role="group" aria-label="구분">
+            <button type="button" data-htype="" aria-pressed="true">전체</button>
+            <button type="button" data-htype="in" aria-pressed="false">입고</button>
+            <button type="button" data-htype="out" aria-pressed="false">출고</button>
+          </div>
+          <input type="search" id="h-q" placeholder="교재명·메모 검색" aria-label="교재명 또는 메모 검색">
+        </div>
+      </div>
+      <div class="filters" role="group" aria-label="기간">
+        <label class="sel"><span>기간</span><select id="h-range">
+          <option value="7">최근 7일</option>
+          <option value="30" selected>최근 30일</option>
+          <option value="month">이번 달</option>
+          <option value="prev">지난 달</option>
+          <option value="90">최근 3개월</option>
+          <option value="year">올해</option>
+          <option value="all">전체</option>
+          <option value="custom">직접 선택</option>
+        </select></label>
+        <span class="custom-range" id="h-custom" hidden>
+          <input type="date" id="h-from" aria-label="시작 날짜"> ~ <input type="date" id="h-to" aria-label="끝 날짜">
+        </span>
+        <label class="pickall"><input type="checkbox" id="h-all"> 보이는 기록 모두 선택</label>
+        <span class="h-sum" id="h-sum" role="status"></span>
+      </div>
+      <div class="bulk" id="h-bulk" hidden>
+        <span id="h-bulk-count"></span>
+        <button type="button" class="del-btn" id="h-bulk-del">선택한 기록 삭제</button>
+        <button type="button" class="linkbtn" id="h-bulk-clear">선택 해제</button>
+      </div>
+      <div class="table-scroll">
+        <table class="cards hist">
+          <thead>
+            <tr>
+              <th class="c-chk"><span class="sr">선택</span></th>
+              <th>날짜</th>
+              <th>구분</th>
+              <th>교재</th>
+              <th class="r">수량</th>
+              <th>메모</th>
+              <th class="r">관리</th>
+            </tr>
+          </thead>
+          <tbody id="h-rows"></tbody>
+        </table>
+        <div class="empty" id="h-empty" hidden>이 기간에 기록이 없습니다.</div>
+        <p class="hint" id="h-more" hidden style="padding:10px 16px;margin:0"></p>
+      </div>
+    </section>
   </div>
 
   <div class="view" id="view-calendar" hidden>
@@ -617,7 +848,9 @@ form label, .field > span { font-size: 13px; color: var(--muted); }
     <div id="pane-one" role="tabpanel" aria-labelledby="tab-one">
       <form class="form-grid" id="add-form" autocomplete="off">
         <div class="field full"><label for="a-title">교재명</label><input type="text" id="a-title" required placeholder="예: 중등 수학 3-1"></div>
-        <div class="field"><label for="a-cat">분류</label><input type="text" id="a-cat" placeholder="예: 수학"></div>
+        <div class="field"><label for="a-year">연차</label><select id="a-year"><option value="">선택 안 함</option><option value="1">1년차</option><option value="2">2년차</option><option value="3">3년차</option></select></div>
+        <div class="field"><label for="a-class">수업 분류</label><select id="a-class"><option value="">선택 안 함</option><option value="RT">RT (정규 수업)</option><option value="ET">ET (방과후 수업)</option></select></div>
+        <div class="field full"><label for="a-memo">메모 (선택)</label><input type="text" id="a-memo" placeholder="예: 2학기부터 개정판 사용, 수학 A반 전용"></div>
         <div class="field"><label for="a-min">부족 기준(권)</label><input type="number" id="a-min" min="0" value="10"></div>
         <div class="field"><label for="a-init">현재 재고(권)</label><input type="number" id="a-init" min="0" value="0"></div>
         <div class="field"><label for="a-sup">주문처</label><select id="a-sup"></select></div>
@@ -628,13 +861,13 @@ form label, .field > span { font-size: 13px; color: var(--muted); }
     </div>
 
     <div id="pane-xls" role="tabpanel" aria-labelledby="tab-xls" hidden style="display:none;flex-direction:column;gap:14px">
-      <p class="help">첫 줄에 아래 제목을 넣고, 둘째 줄부터 교재를 한 줄에 하나씩 적어 주세요. <strong>교재명</strong>만 필수입니다. 주문처에는 등록된 업체 이름을 그대로 적어 주세요.</p>
+      <p class="help">첫 줄에 아래 제목을 넣고, 둘째 줄부터 교재를 한 줄에 하나씩 적어 주세요. <strong>교재명</strong>만 필수입니다. 연차는 1·2·3 또는 1년차처럼, 수업 분류는 RT·ET로 적어 주세요. 주문처에는 등록된 업체 이름을 그대로 적어 주세요.</p>
       <div class="fmt-scroll">
         <table class="fmt">
-          <thead><tr><th>교재명</th><th>분류</th><th class="r">부족 기준</th><th class="r">현재 재고</th><th>주문처</th></tr></thead>
+          <thead><tr><th>교재명</th><th>연차</th><th>수업 분류</th><th class="r">부족 기준</th><th class="r">현재 재고</th><th>주문처</th><th>메모</th></tr></thead>
           <tbody>
-            <tr><td>중등 수학 3-1 개념</td><td>수학</td><td class="r num">15</td><td class="r num">40</td><td>가람교재유통</td></tr>
-            <tr><td>영어 듣기 기초</td><td>영어</td><td class="r num">10</td><td class="r num">25</td><td>새솔북스</td></tr>
+            <tr><td>중등 수학 3-1 개념</td><td>1년차</td><td>RT</td><td class="r num">15</td><td class="r num">40</td><td>가람교재유통</td><td></td></tr>
+            <tr><td>영어 듣기 기초</td><td>2년차</td><td>ET</td><td class="r num">10</td><td class="r num">25</td><td>새솔북스</td><td>2학기부터 개정판</td></tr>
           </tbody>
         </table>
       </div>
@@ -647,9 +880,63 @@ form label, .field > span { font-size: 13px; color: var(--muted); }
       </div>
       <div class="msg" id="xls-msg" hidden></div>
       <div class="fmt-scroll" id="xls-prev-wrap" hidden>
-        <table class="fmt"><thead><tr><th>교재명</th><th>주문처</th><th class="r">재고</th><th>결과</th></tr></thead><tbody id="xls-prev"></tbody></table>
+        <table class="fmt"><thead><tr><th>교재명</th><th>분류</th><th>주문처</th><th class="r">재고</th><th>결과</th></tr></thead><tbody id="xls-prev"></tbody></table>
       </div>
       <button type="button" class="primary" id="xls-go" disabled>파일을 먼저 선택해 주세요</button>
+    </div>
+  </div>
+</dialog>
+
+<dialog class="detail" id="book-dlg" aria-labelledby="be-title">
+  <div class="d-head">
+    <div><h2 id="be-title">교재 정보 수정</h2><p>재고 숫자는 여기서 바꾸지 않습니다. 입고·출고로 기록해 주세요.</p></div>
+    <button type="button" class="d-close" data-close="book-dlg">닫기</button>
+  </div>
+  <div class="d-body">
+    <form class="form-grid" id="book-form" autocomplete="off">
+      <div class="field full"><label for="b-title">교재명</label><input type="text" id="b-title" required></div>
+      <div class="field"><label for="b-year">연차</label><select id="b-year"><option value="">선택 안 함</option><option value="1">1년차</option><option value="2">2년차</option><option value="3">3년차</option></select></div>
+      <div class="field"><label for="b-class">수업 분류</label><select id="b-class"><option value="">선택 안 함</option><option value="RT">RT (정규 수업)</option><option value="ET">ET (방과후 수업)</option></select></div>
+      <div class="field full"><label for="b-memo">메모 (선택)</label><input type="text" id="b-memo" placeholder="예: 2학기부터 개정판 사용, 수학 A반 전용"></div>
+      <div class="field"><label for="b-min">부족 기준(권)</label><input type="number" id="b-min" min="0"></div>
+      <div class="field"><label for="b-sup">주문처</label><select id="b-sup"></select></div>
+      <div class="msg err full" id="b-err" hidden></div>
+      <div class="full"><button type="submit" class="primary">수정 내용 저장하기</button></div>
+    </form>
+    <div class="danger">
+      <div>
+        <strong>교재 삭제</strong>
+        <p id="b-del-note">이 교재와 입출고 기록이 모두 지워지고 되돌릴 수 없습니다.</p>
+      </div>
+      <button type="button" class="del-btn" id="b-del">교재 삭제</button>
+    </div>
+  </div>
+</dialog>
+
+<dialog class="detail" id="txe-dlg" aria-labelledby="te-title">
+  <div class="d-head">
+    <div><h2 id="te-title">입출고 기록 수정</h2><p id="te-sub"></p></div>
+    <button type="button" class="d-close" data-close="txe-dlg">닫기</button>
+  </div>
+  <div class="d-body">
+    <form class="form-grid" id="txe-form" autocomplete="off">
+      <div class="field full">
+        <span>구분</span>
+        <div class="seg">
+          <label class="t-in"><input type="radio" name="te-type" id="te-in" value="in">입고</label>
+          <label class="t-out"><input type="radio" name="te-type" id="te-out" value="out">출고</label>
+        </div>
+      </div>
+      <div class="field full"><label for="te-book">교재</label><select id="te-book"></select></div>
+      <div class="field"><label for="te-qty">수량(권)</label><input type="number" id="te-qty" min="1" step="1" required></div>
+      <div class="field"><label for="te-date">날짜</label><input type="date" id="te-date" required></div>
+      <div class="field full"><label for="te-memo">메모 (선택)</label><input type="text" id="te-memo"></div>
+      <div class="preview full" id="te-preview" aria-live="polite"></div>
+      <div class="full"><button type="submit" class="primary" id="te-save">수정 내용 저장하기</button></div>
+    </form>
+    <div class="danger">
+      <div><strong>이 기록 삭제</strong><p>삭제하면 재고가 다시 계산됩니다. 되돌릴 수 없습니다.</p></div>
+      <button type="button" class="del-btn" id="te-del">기록 삭제</button>
     </div>
   </div>
 </dialog>
@@ -673,7 +960,7 @@ form label, .field > span { font-size: 13px; color: var(--muted); }
 <dialog class="detail" id="detail" aria-labelledby="d-title">
   <div class="d-head">
     <div><h2 id="d-title"></h2><p id="d-sub"></p></div>
-    <button type="button" class="d-close" id="d-close">닫기</button>
+    <div class="d-btns"><button type="button" class="d-close" id="d-edit">수정·삭제</button><button type="button" class="d-close" id="d-close">닫기</button></div>
   </div>
   <div class="d-body" id="d-body"></div>
 </dialog>

@@ -6,15 +6,29 @@ var configured = !!(cfg.SUPABASE_URL && cfg.SUPABASE_ANON_KEY && window.supabase
 var db = configured ? window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY) : null;
 
 var suppliers = [], books = [], txs = [], plans = [], stockMap = {}, detailTx = null;
-var filter = "all", query = "", lastTxId = null, detailId = null, busy = false, currentUser = null;
+var filter = "all", query = "", flYear = "", flClass = "", flGroup = "", editBookId = null, lastTxId = null, detailId = null, busy = false, currentUser = null;
 var LOG_LIMIT = 100;
+var CLASS_NAME = { RT: "RT 정규", ET: "ET 방과후" };
+function yearName(y) { return y ? y + "년차" : ""; }
+// 교재 분류 표시: 연차·수업 분류 꼬리표와 과목명
+function tagsHtml(b) {
+  var out = "";
+  if (b.year) out += '<span class="tg y' + b.year + '">' + yearName(b.year) + '</span>';
+  if (b.class_type) out += '<span class="tg ' + b.class_type.toLowerCase() + '">' + b.class_type + '</span>';
+  if (!out) out = '<span class="tg">분류 없음</span>';
+  if (b.memo) out += '<span class="bmemo">' + esc(b.memo) + '</span>';
+  return out;
+}
+function tagsText(b) {
+  return [yearName(b.year), b.class_type ? CLASS_NAME[b.class_type] : ""].filter(Boolean).join(" · ") || "분류 없음";
+}
 function supplierOf(book) { return suppliers.find(function (s) { return s.id === book.supplier_id; }) || null; }
 
 // ---------- 서버와 주고받기 ----------
 function need(res) { if (res.error) throw res.error; return res.data; }
 function errText(e) {
   var m = (e && e.message) || String(e);
-  if (/STOCK_NEGATIVE/.test(m)) return "재고보다 많이 출고할 수 없습니다. 다른 사람이 먼저 기록했을 수 있으니 재고를 다시 확인해 주세요.";
+  if (/STOCK_NEGATIVE/.test(m)) return "재고가 0권보다 적어지게 되어 처리하지 않았습니다. 재고보다 많이 출고하려 했거나, 이미 출고된 입고 기록을 지우거나 줄이려 한 경우입니다. 다른 사람이 먼저 기록했을 수도 있으니 재고를 다시 확인해 주세요.";
   if (/duplicate key|already exists/i.test(m)) return "같은 이름이 이미 등록되어 있습니다. 이름을 확인해 주세요.";
   if (/Failed to fetch|NetworkError|Load failed/i.test(m)) return "서버에 연결하지 못했습니다. 인터넷 연결을 확인하고 새로고침을 눌러 주세요.";
   if (/does not exist|schema cache/i.test(m)) return "데이터베이스 표를 찾지 못했습니다. Supabase에서 schema.sql을 실행했는지 확인해 주세요. (" + m + ")";
@@ -57,6 +71,7 @@ async function loadAll() {
   if ($("detail").open) { renderDetail(); loadDetailTx(detailId); }
   if ($("sup-dlg").open) renderSup();
   if ($("plan-dlg").open) renderPlanDlg();
+  if (!$("view-history").hidden) await loadHistory();
 }
 async function loadDetailTx(id) {
   try {
@@ -107,32 +122,77 @@ function renderSummary(view) {
   $("t-none").classList.toggle("alert", none > 0);
 }
 
+function passFilters(v) {
+  var b = v.b;
+  if (filter === "attn" && v.s.key === "ok") return false;
+  if (flYear && (flYear === "none" ? b.year : String(b.year) !== flYear)) return false;
+  if (flClass && (flClass === "none" ? b.class_type : b.class_type !== flClass)) return false;
+  var q = query.trim().toLowerCase();
+  if (q) {
+    var sp = supplierOf(b);
+    if ((b.title + " " + tagsText(b) + " " + (b.memo || "") + " " + (sp ? sp.name : "")).toLowerCase().indexOf(q) === -1) return false;
+  }
+  return true;
+}
+// 묶어 보기: 연차 1→3, 수업 RT→ET, 과목 가나다 순, 미지정은 맨 뒤
+function groupKey(b) {
+  if (flGroup === "year") return b.year ? String(b.year) : "";
+  if (flGroup === "class") return b.class_type || "";
+  return "";
+}
+function groupName(k) {
+  if (flGroup === "year") return k ? k + "년차" : "연차 미지정";
+  return k ? (k === "RT" ? "RT · 정규 수업" : "ET · 방과후 수업") : "수업 분류 미지정";
+}
+function bookRow(v, max, sel) {
+  var pct = Math.max(0, Math.round(v.t.stock / max * 100));
+  return '<tr class="' + (v.b.id === sel ? "sel" : "") + '">' +
+    '<td class="title"><button type="button" class="linkbtn" data-detail="' + v.b.id + '">' + esc(v.b.title) + '</button><small>' + tagsHtml(v.b) + '</small></td>' +
+    '<td class="sup" data-label="주문처">' + esc(supplierOf(v.b) ? supplierOf(v.b).name : "미지정") + '</td>' +
+    '<td class="r c-stock"><div class="stock"><span class="bar ' + v.s.key + '"><i style="width:' + pct + '%"></i></span><b>' + fmt(v.t.stock) + '</b></div></td>' +
+    '<td class="c-status"><span class="pill ' + v.s.key + '">' + v.s.label + '</span></td>' +
+    '<td class="r c-btns"><div class="rowbtns">' +
+      '<button type="button" class="mini" data-book="' + v.b.id + '" data-type="in">+ 입고</button>' +
+      '<button type="button" class="mini" data-book="' + v.b.id + '" data-type="out">− 출고</button>' +
+    '</div></td></tr>';
+}
 function renderTable(view) {
   var max = Math.max.apply(null, view.map(function (v) { return v.t.stock; }).concat([1]));
   var sel = selectedBookId();
-  var sp;
-  var q = query.trim().toLowerCase();
-  var shown = view.filter(function (v) {
-    if (filter === "attn" && v.s.key === "ok") return false;
-    sp = supplierOf(v.b);
-    if (q && (v.b.title + " " + v.b.category + " " + (sp ? sp.name : "")).toLowerCase().indexOf(q) === -1) return false;
-    return true;
-  });
-  $("rows").innerHTML = shown.map(function (v) {
-    var pct = Math.max(0, Math.round(v.t.stock / max * 100));
-    return '<tr class="' + (v.b.id === sel ? "sel" : "") + '">' +
-      '<td class="title"><button type="button" class="linkbtn" data-detail="' + v.b.id + '">' + esc(v.b.title) + '</button><small>' + esc(v.b.category || "미분류") + '</small></td>' +
-      '<td class="sup" data-label="주문처">' + esc(supplierOf(v.b) ? supplierOf(v.b).name : "미지정") + '</td>' +
-      '<td class="r c-stock"><div class="stock"><span class="bar ' + v.s.key + '"><i style="width:' + pct + '%"></i></span><b>' + fmt(v.t.stock) + '</b></div></td>' +
-      '<td class="c-status"><span class="pill ' + v.s.key + '">' + v.s.label + '</span></td>' +
-      '<td class="r c-btns"><div class="rowbtns">' +
-        '<button type="button" class="mini" data-book="' + v.b.id + '" data-type="in">+ 입고</button>' +
-        '<button type="button" class="mini" data-book="' + v.b.id + '" data-type="out">− 출고</button>' +
-      '</div></td></tr>';
-  }).join("");
+  var shown = view.filter(passFilters);
+  if (!flGroup) {
+    $("rows").innerHTML = shown.map(function (v) { return bookRow(v, max, sel); }).join("");
+  } else {
+    var groups = {}, keys = [];
+    shown.forEach(function (v) {
+      var k = groupKey(v.b);
+      if (!groups[k]) { groups[k] = []; keys.push(k); }
+      groups[k].push(v);
+    });
+    keys.sort(function (a, c) {
+      if (!a) return 1;
+      if (!c) return -1;
+      if (flGroup === "class") return a === "RT" ? -1 : 1;
+      return Number(a) - Number(c);
+    });
+    $("rows").innerHTML = keys.map(function (k) {
+      var list = groups[k];
+      var sum = list.reduce(function (n, v) { return n + v.t.stock; }, 0);
+      var low = list.filter(function (v) { return v.s.key === "low"; }).length;
+      var none = list.filter(function (v) { return v.s.key === "none"; }).length;
+      return '<tr class="grp"><td colspan="5"><span class="gname">' + esc(groupName(k)) + '</span>' +
+        '<span class="gmeta">' + fmt(list.length) + '종 · 재고 ' + fmt(sum) + '권</span>' +
+        (low ? '<span class="pill low">부족 ' + low + '</span>' : '') +
+        (none ? '<span class="pill none">품절 ' + none + '</span>' : '') + '</td></tr>' +
+        list.map(function (v) { return bookRow(v, max, sel); }).join("");
+    }).join("");
+  }
   $("no-rows").hidden = shown.length > 0;
+  $("fl-reset").hidden = !(flYear || flClass || flGroup);
+  [["fl-year", flYear], ["fl-class", flClass], ["fl-group", flGroup]].forEach(function (p) {
+    $(p[0]).parentNode.classList.toggle("on", !!p[1]);
+  });
 }
-
 function renderSelect() {
   var cur = $("f-book").value;
   $("f-book").innerHTML = books.map(function (b) {
@@ -183,7 +243,7 @@ function renderDetail() {
   if (!b) return;
   var t = totals(b.id), s = statusOf(b, t.stock), sp = supplierOf(b);
   $("d-title").textContent = b.title;
-  $("d-sub").textContent = (b.category || "미분류") + " · 부족 기준 " + fmt(b.min_stock) + "권";
+  $("d-sub").textContent = tagsText(b) + " · 부족 기준 " + fmt(b.min_stock) + "권";
   var notice = "";
   if (s.key !== "ok") {
     notice = '<div class="notice ' + s.key + '">' + (s.key === "none" ? "품절입니다. " : "재고가 부족 기준 이하입니다. ") +
@@ -196,7 +256,7 @@ function renderDetail() {
         '<dt>사이트</dt><dd>' + siteHtml(sp) + '</dd>' +
         '<dt>주문 방법</dt><dd>' + esc(sp.order_method || "미입력") + '</dd>' +
         '<dt>납기</dt><dd>' + esc(sp.lead_time || "미입력") + '</dd>' +
-        '<dt>메모</dt><dd>' + esc(sp.memo || "미입력") + '</dd>' +
+        '<dt>업체 메모</dt><dd>' + esc(sp.memo || "미입력") + '</dd>' +
       '</dl>'
     : '<p style="margin:0;color:var(--muted);font-size:14px">주문처가 지정되지 않았습니다.</p>';
   var mine = detailTx || [];
@@ -211,6 +271,7 @@ function renderDetail() {
       '<div class="d-stat"><span>누적 입고</span><b>' + fmt(t.in) + '</b></div>' +
       '<div class="d-stat"><span>누적 출고</span><b>' + fmt(t.out) + '</b></div>' +
     '</div>' +
+    (b.memo ? '<div class="d-sec"><h3>메모</h3><p class="memo-box">' + esc(b.memo) + '</p></div>' : '') +
     '<div class="d-sec"><h3>주문처</h3>' + notice + supHtml +
       (sp && incomplete(sp) ? '<p class="help" style="margin-top:8px">이 업체의 연락처, 사이트, 주문 방법이 아직 입력되지 않았습니다. <button type="button" class="linkbtn" data-editsup="' + sp.id + '">업체 정보 입력</button></p>' : '') +
       '<div class="field" style="margin-top:12px"><label for="d-sup" style="font-size:13px;color:var(--muted)">주문처 변경</label><select id="d-sup">' +
@@ -244,7 +305,7 @@ function openList(kind) {
   $("list-body").innerHTML = view.map(function (v) {
     var sp = supplierOf(v.b);
     return '<li><button type="button" data-detail="' + v.b.id + '">' +
-      '<span class="nm">' + esc(v.b.title) + '<small>' + esc(v.b.category || "미분류") + ' · ' + esc(sp ? sp.name : "주문처 미지정") + '</small></span>' +
+      '<span class="nm">' + esc(v.b.title) + '<small>' + esc(tagsText(v.b)) + ' · ' + esc(sp ? sp.name : "주문처 미지정") + '</small></span>' +
       '<span class="q">' + fmt(v.t.stock) + '권</span>' +
       '<span class="pill ' + v.s.key + '">' + v.s.label + '</span></button></li>';
   }).join("") || '<li style="padding:18px 12px;color:var(--muted);text-align:center">해당하는 교재가 없습니다.</li>';
@@ -288,7 +349,12 @@ function booksOf(supId) {
     return { b: b, t: t, s: statusOf(b, t.stock) };
   });
 }
-function sayDone(text) { $("done").textContent = text; $("done").hidden = false; }
+var doneTimer = null;
+function sayDone(text) {
+  $("done").textContent = text; $("done").hidden = false;
+  clearTimeout(doneTimer);
+  doneTimer = setTimeout(function () { $("done").hidden = true; }, 8000);
+}
 function hasTitle(title) { return books.some(function (b) { return b.title.trim().toLowerCase() === title.toLowerCase(); }); }
 // 좁은 화면에서는 입출고 입력 폼을 창으로 띄운다 (같은 폼을 옮겨 쓴다)
 var txHome = $("tx-form").parentNode;
@@ -316,6 +382,7 @@ function render() {
   renderPreview();
   renderLog();
   renderVendors();
+  renderBookList();
   renderCalendar();
   renderTodo();
 }
@@ -484,7 +551,7 @@ function renderSup() {
     : '<p class="help">주문처가 지정되지 않은 교재입니다. 교재를 눌러 주문처를 지정해 주세요.</p>';
   var items = shown.map(function (v) {
     return '<li><button type="button" data-detail="' + v.b.id + '">' +
-      '<span class="nm">' + esc(v.b.title) + '<small>' + esc(v.b.category || "미분류") + ' · 부족 기준 ' + fmt(v.b.min_stock) + '권</small></span>' +
+      '<span class="nm">' + esc(v.b.title) + '<small>' + esc(tagsText(v.b)) + ' · 부족 기준 ' + fmt(v.b.min_stock) + '권</small></span>' +
       '<span class="q">' + fmt(v.t.stock) + '권</span><span class="pill ' + v.s.key + '">' + v.s.label + '</span></button></li>';
   }).join("") || '<li style="padding:16px 12px;color:var(--muted);text-align:center">' + (supNeedOnly ? "주문이 필요한 교재가 없습니다." : "담당 교재가 없습니다.") + '</li>';
   var others = books.filter(function (b) { return (b.supplier_id || 0) !== supViewId; });
@@ -574,6 +641,77 @@ $("rows").addEventListener("click", function (e) {
 
 // 상세 창
 $("d-close").addEventListener("click", closeDetail);
+$("d-edit").addEventListener("click", function () { var id = detailId; closeDetail(); openBookEdit(id); });
+
+// 교재 수정·삭제
+function openBookEdit(id) {
+  var b = books.find(function (k) { return k.id === id; });
+  if (!b) return;
+  editBookId = id;
+  $("b-title").value = b.title;
+  $("b-year").value = b.year ? String(b.year) : "";
+  $("b-class").value = b.class_type || "";
+  $("b-memo").value = b.memo || "";
+  $("b-min").value = b.min_stock;
+  $("b-sup").innerHTML = '<option value="">미지정</option>' + suppliers.map(function (s) { return '<option value="' + s.id + '">' + esc(s.name) + '</option>'; }).join("");
+  $("b-sup").value = b.supplier_id ? String(b.supplier_id) : "";
+  $("b-err").hidden = true;
+  var t = totals(id), n = detailTx && detailTx.length < 200 && detailTx.every(function (x) { return x.book_id === id; }) ? detailTx.length : null;
+  $("b-del-note").textContent = "이 교재와 입출고 기록" + (n !== null ? " " + fmt(n) + "건" : "") + "이 모두 지워지고 되돌릴 수 없습니다." +
+    (t.stock > 0 ? " 아직 재고가 " + fmt(t.stock) + "권 남아 있습니다." : "");
+  $("b-del").classList.remove("armed");
+  $("b-del").textContent = "교재 삭제";
+  openDlg("book-dlg");
+}
+$("book-form").addEventListener("submit", function (e) {
+  e.preventDefault();
+  var title = $("b-title").value.trim();
+  if (!title) return;
+  if (books.some(function (b) { return b.id !== editBookId && b.title.trim().toLowerCase() === title.toLowerCase(); })) {
+    $("b-err").textContent = "같은 이름의 교재가 이미 있습니다. 교재명을 확인해 주세요.";
+    $("b-err").hidden = false; return;
+  }
+  var id = editBookId;
+  var fields = {
+    title: title, year: Number($("b-year").value) || null, class_type: $("b-class").value || null,
+    memo: $("b-memo").value.trim(), min_stock: Math.max(0, Math.floor(Number($("b-min").value)) || 0),
+    supplier_id: Number($("b-sup").value) || null
+  };
+  closeDlg("book-dlg");
+  save(async function () {
+    need(await db.from("books").update(fields).eq("id", id));
+    await loadAll();
+    sayDone("\u201c" + title + "\u201d 교재 정보를 수정했습니다.");
+    openDetail(id);
+  });
+});
+$("b-del").addEventListener("click", function () {
+  var btn = $("b-del");
+  if (!btn.classList.contains("armed")) {
+    btn.classList.add("armed");
+    btn.textContent = "한 번 더 누르면 삭제됩니다";
+    return;
+  }
+  var id = editBookId, b = books.find(function (k) { return k.id === id; });
+  closeDlg("book-dlg");
+  save(async function () {
+    need(await db.from("books").delete().eq("id", id));
+    await loadAll();
+    sayDone("\u201c" + (b ? b.title : "") + "\u201d 교재를 삭제했습니다.");
+  });
+});
+$("book-dlg").addEventListener("click", function (e) { if (e.target === $("book-dlg")) closeDlg("book-dlg"); });
+
+// 분류 필터
+[["fl-year", function (v) { flYear = v; }], ["fl-class", function (v) { flClass = v; }],
+ ["fl-group", function (v) { flGroup = v; }]].forEach(function (p) {
+  $(p[0]).addEventListener("change", function () { p[1]($(p[0]).value); render(); });
+});
+$("fl-reset").addEventListener("click", function () {
+  flYear = flClass = flGroup = "";
+  ["fl-year", "fl-class", "fl-group"].forEach(function (id) { $(id).value = ""; });
+  render();
+});
 $("detail").addEventListener("click", function (e) {
   if (e.target === $("detail")) { closeDetail(); return; }
   var go = e.target.closest("button[data-go]");
@@ -582,6 +720,325 @@ $("detail").addEventListener("click", function (e) {
   closeDetail();
   prefill(id, go.getAttribute("data-go"));
 });
+
+// ---------- 교재 목록 ----------
+var blPicked = {}, blQ = "", blYear = "", blClass = "";
+function blShown() {
+  var q = blQ.trim().toLowerCase();
+  return books.filter(function (b) {
+    if (blYear && (blYear === "none" ? b.year : String(b.year) !== blYear)) return false;
+    if (blClass && (blClass === "none" ? b.class_type : b.class_type !== blClass)) return false;
+    if (q) {
+      var sp = supplierOf(b);
+      if ((b.title + " " + tagsText(b) + " " + (b.memo || "") + " " + (sp ? sp.name : "")).toLowerCase().indexOf(q) === -1) return false;
+    }
+    return true;
+  });
+}
+function renderBookList() {
+  var ids = {};
+  books.forEach(function (b) { ids[b.id] = true; });
+  Object.keys(blPicked).forEach(function (k) { if (!ids[k]) delete blPicked[k]; });
+  var list = blShown(), sum = 0;
+  $("bl-rows").innerHTML = list.map(function (b) {
+    var t = totals(b.id), s = statusOf(b, t.stock), on = !!blPicked[b.id], sp = supplierOf(b);
+    sum += t.stock;
+    return '<tr class="' + (on ? "picked" : "") + '">' +
+      '<td class="c-chk"><input type="checkbox" data-bpick="' + b.id + '"' + (on ? " checked" : "") + ' aria-label="이 교재 선택"></td>' +
+      '<td class="title"><button type="button" class="linkbtn" data-detail="' + b.id + '">' + esc(b.title) + '</button><small>' + tagsHtml(b) + '</small></td>' +
+      '<td class="sup" data-label="주문처">' + esc(sp ? sp.name : "미지정") + '</td>' +
+      '<td class="r b-num" data-label="부족 기준">' + fmt(b.min_stock) + '권</td>' +
+      '<td class="r b-stock"><b>' + fmt(t.stock) + '</b><span class="pill ' + s.key + '">' + s.label + '</span></td>' +
+      '<td class="r h-act"><div class="rowbtns">' +
+        '<button type="button" class="mini" data-bedit="' + b.id + '">수정</button>' +
+        '<button type="button" class="mini" data-bdel="' + b.id + '">삭제</button>' +
+      '</div></td></tr>';
+  }).join("");
+  $("bl-empty").hidden = list.length > 0;
+  $("bl-sum").textContent = fmt(list.length) + "종 · 재고 " + fmt(sum) + "권";
+  var picked = Object.keys(blPicked).map(Number), left = 0;
+  picked.forEach(function (id) { left += Math.max(0, totals(id).stock); });
+  $("bl-bulk").hidden = picked.length === 0;
+  $("bl-count").textContent = fmt(picked.length) + "종 선택됨 · 남은 재고 " + fmt(left) + "권";
+  ["bl-del", "bl-discard"].forEach(function (id) { $(id).classList.remove("armed"); });
+  $("bl-del").textContent = "선택한 교재 삭제";
+  $("bl-discard").textContent = "남은 재고 폐기 처리";
+  $("bl-discard").disabled = left === 0;
+  $("bl-all").checked = list.length > 0 && list.every(function (b) { return blPicked[b.id]; });
+  [["bl-year", blYear], ["bl-class", blClass]].forEach(function (p) { $(p[0]).parentNode.classList.toggle("on", !!p[1]); });
+}
+function deleteBooks(ids) {
+  var names = ids.map(function (id) { return bookTitle(id); }).filter(Boolean);
+  save(async function () {
+    need(await db.from("books").delete().in("id", ids));
+    ids.forEach(function (id) { delete blPicked[id]; });
+    await loadAll();
+    sayDone(names.length === 1 ? "\u201c" + names[0] + "\u201d 교재를 삭제했습니다." : "교재 " + fmt(names.length) + "종을 삭제했습니다.");
+  });
+}
+$("bl-add").addEventListener("click", function () { $("open-add").click(); });
+$("bl-q").addEventListener("input", function () { blQ = $("bl-q").value; renderBookList(); });
+$("bl-year").addEventListener("change", function () { blYear = $("bl-year").value; renderBookList(); });
+$("bl-class").addEventListener("change", function () { blClass = $("bl-class").value; renderBookList(); });
+$("bl-all").addEventListener("change", function () {
+  var on = $("bl-all").checked;
+  blShown().forEach(function (b) { if (on) blPicked[b.id] = true; else delete blPicked[b.id]; });
+  renderBookList();
+});
+$("bl-clear").addEventListener("click", function () { blPicked = {}; renderBookList(); });
+$("bl-rows").addEventListener("change", function (e) {
+  var c = e.target.closest("input[data-bpick]");
+  if (!c) return;
+  var id = Number(c.getAttribute("data-bpick"));
+  if (c.checked) blPicked[id] = true; else delete blPicked[id];
+  renderBookList();
+});
+$("bl-rows").addEventListener("click", function (e) {
+  var t = e.target.closest("button");
+  if (!t) return;
+  if (t.hasAttribute("data-detail")) { openDetail(Number(t.getAttribute("data-detail"))); return; }
+  if (t.hasAttribute("data-bedit")) { openBookEdit(Number(t.getAttribute("data-bedit"))); return; }
+  if (t.hasAttribute("data-bdel")) {
+    if (!t.hasAttribute("data-armed")) { t.setAttribute("data-armed", "1"); t.textContent = "한 번 더"; t.classList.add("armed-mini"); return; }
+    deleteBooks([Number(t.getAttribute("data-bdel"))]);
+  }
+});
+$("bl-del").addEventListener("click", function () {
+  var btn = $("bl-del"), ids = Object.keys(blPicked).map(Number);
+  if (!ids.length) return;
+  if (!btn.classList.contains("armed")) {
+    btn.classList.add("armed");
+    btn.textContent = fmt(ids.length) + "종과 기록 모두 삭제 · 한 번 더 누르세요";
+    return;
+  }
+  deleteBooks(ids);
+});
+// 폐기 처리: 남은 재고만큼 "폐기" 출고를 기록해서 재고를 0으로 만든다
+$("bl-discard").addEventListener("click", function () {
+  var btn = $("bl-discard");
+  var rows = Object.keys(blPicked).map(Number).map(function (id) { return { book_id: id, stock: totals(id).stock }; })
+    .filter(function (r) { return r.stock > 0; });
+  if (!rows.length) return;
+  var total = rows.reduce(function (n, r) { return n + r.stock; }, 0);
+  if (!btn.classList.contains("armed")) {
+    btn.classList.add("armed");
+    btn.textContent = fmt(rows.length) + "종 " + fmt(total) + "권 폐기 · 한 번 더 누르세요";
+    return;
+  }
+  save(async function () {
+    need(await db.from("transactions").insert(rows.map(function (r) {
+      return { book_id: r.book_id, type: "out", quantity: r.stock, date: today(), memo: "폐기" };
+    })));
+    blPicked = {};
+    await loadAll();
+    sayDone("교재 " + fmt(rows.length) + "종, " + fmt(total) + "권을 폐기 처리했습니다. 입출고 내역에 \u201c폐기\u201d 출고로 남아 있습니다.");
+  });
+});
+
+// ---------- 입출고 내역 ----------
+var HIST_LIMIT = 500;
+var hist = [], histType = "", histQ = "", picked = {}, txEdit = null;
+function histRange() {
+  var v = $("h-range").value, d = new Date(), y = d.getFullYear(), m = d.getMonth();
+  if (v === "all") return { from: null, to: null };
+  if (v === "custom") return { from: $("h-from").value || null, to: $("h-to").value || null };
+  if (v === "month") return { from: ymd(new Date(y, m, 1)), to: null };
+  if (v === "prev") return { from: ymd(new Date(y, m - 1, 1)), to: ymd(new Date(y, m, 0)) };
+  if (v === "year") return { from: ymd(new Date(y, 0, 1)), to: null };
+  return { from: ymd(new Date(y, m, d.getDate() - Number(v) + 1)), to: null };
+}
+async function loadHistory() {
+  var r = histRange();
+  var q = db.from("transactions").select("*");
+  if (r.from) q = q.gte("date", r.from);
+  if (r.to) q = q.lte("date", r.to);
+  if (histType) q = q.eq("type", histType);
+  hist = need(await q.order("date", { ascending: false }).order("id", { ascending: false }).limit(HIST_LIMIT));
+  var ids = {};
+  hist.forEach(function (x) { ids[x.id] = true; });
+  Object.keys(picked).forEach(function (k) { if (!ids[k]) delete picked[k]; });
+  renderHistory();
+}
+function bookTitle(id) { var b = books.find(function (k) { return k.id === id; }); return b ? b.title : null; }
+function histShown() {
+  var q = histQ.trim().toLowerCase();
+  if (!q) return hist;
+  return hist.filter(function (x) { return ((bookTitle(x.book_id) || "") + " " + (x.memo || "")).toLowerCase().indexOf(q) !== -1; });
+}
+function renderHistory() {
+  var list = histShown(), inSum = 0, outSum = 0;
+  list.forEach(function (x) { if (x.type === "in") inSum += x.quantity; else outSum += x.quantity; });
+  $("h-sum").innerHTML = fmt(list.length) + "건 · 입고 <b class=\"in\">+" + fmt(inSum) + "</b> · 출고 <b class=\"out\">−" + fmt(outSum) + "</b>";
+  $("h-rows").innerHTML = list.map(function (x) {
+    var t = bookTitle(x.book_id), on = !!picked[x.id];
+    return '<tr class="' + (on ? "picked" : "") + '">' +
+      '<td class="c-chk"><input type="checkbox" data-pick="' + x.id + '"' + (on ? " checked" : "") + ' aria-label="이 기록 선택"></td>' +
+      '<td class="h-date">' + esc(x.date) + '</td>' +
+      '<td class="h-type"><span class="pill ' + x.type + '">' + (x.type === "in" ? "입고" : "출고") + '</span></td>' +
+      '<td class="h-book">' + (t ? esc(t) : '<span class="gone">삭제된 교재</span>') + '</td>' +
+      '<td class="r h-qty ' + x.type + '">' + (x.type === "in" ? "+" : "−") + fmt(x.quantity) + '</td>' +
+      '<td class="h-memo">' + esc(x.memo || "") + '</td>' +
+      '<td class="r h-act"><div class="rowbtns">' +
+        '<button type="button" class="mini" data-hedit="' + x.id + '">수정</button>' +
+        '<button type="button" class="mini" data-hdel="' + x.id + '">삭제</button>' +
+      '</div></td></tr>';
+  }).join("");
+  $("h-empty").hidden = list.length > 0;
+  $("h-empty").textContent = histQ ? "검색어에 맞는 기록이 없습니다." : "이 기간에 기록이 없습니다.";
+  $("h-more").hidden = hist.length < HIST_LIMIT;
+  $("h-more").textContent = "최근 " + fmt(HIST_LIMIT) + "건까지만 보여 줍니다. 기간을 좁히면 더 오래된 기록을 볼 수 있습니다.";
+  var n = Object.keys(picked).length;
+  $("h-bulk").hidden = n === 0;
+  $("h-bulk-count").textContent = fmt(n) + "건 선택됨";
+  $("h-bulk-del").classList.remove("armed");
+  $("h-bulk-del").textContent = "선택한 기록 삭제";
+  $("h-all").checked = list.length > 0 && list.every(function (x) { return picked[x.id]; });
+}
+// 기록을 지우거나 바꾼 뒤의 재고를 미리 계산해서, 0보다 작아지는 교재를 찾는다
+function stockAfter(changes) {
+  var delta = {};
+  changes.forEach(function (c) {
+    delta[c.book_id] = (delta[c.book_id] || 0) + (c.type === "in" ? c.quantity : -c.quantity) * c.sign;
+  });
+  return Object.keys(delta).map(function (id) {
+    return { id: Number(id), after: totals(Number(id)).stock + delta[id] };
+  }).filter(function (r) { return r.after < 0 && bookTitle(r.id); });
+}
+function blockedText(bad) {
+  return bad.map(function (r) { return "\u201c" + bookTitle(r.id) + "\u201d"; }).join(", ") +
+    " 재고가 0권보다 적어집니다. 이미 출고된 수량의 입고 기록이라 지울 수 없습니다. 출고 기록을 먼저 지우거나 고쳐 주세요.";
+}
+function deleteTx(ids, onBlocked) {
+  var rows = hist.concat(txs).filter(function (x, i, all) {
+    return ids.indexOf(x.id) !== -1 && all.findIndex(function (y) { return y.id === x.id; }) === i;
+  });
+  var bad = stockAfter(rows.map(function (x) { return { book_id: x.book_id, type: x.type, quantity: x.quantity, sign: -1 }; }));
+  if (bad.length) { onBlocked(blockedText(bad)); return; }
+  save(async function () {
+    need(await db.from("transactions").delete().in("id", ids));
+    ids.forEach(function (id) { delete picked[id]; });
+    lastTxId = null;
+    await loadAll();
+    if ($("view-history").hidden) await loadHistory();
+    sayDone("입출고 기록 " + fmt(ids.length) + "건을 삭제했습니다. 재고를 다시 계산했습니다.");
+  });
+}
+function sayHist(text) { $("h-sum").insertAdjacentHTML("afterbegin", '<span style="color:var(--in);font-weight:600">' + esc(text) + '</span> · '); }
+
+$("go-history").addEventListener("click", function () { showView("history"); window.scrollTo(0, 0); });
+document.querySelectorAll(".chips button[data-htype]").forEach(function (b) {
+  b.addEventListener("click", function () {
+    histType = b.getAttribute("data-htype");
+    document.querySelectorAll(".chips button[data-htype]").forEach(function (o) { o.setAttribute("aria-pressed", String(o === b)); });
+    save(loadHistory);
+  });
+});
+$("h-q").addEventListener("input", function () { histQ = $("h-q").value; renderHistory(); });
+$("h-range").addEventListener("change", function () {
+  var custom = $("h-range").value === "custom";
+  $("h-custom").hidden = !custom;
+  if (custom && !$("h-from").value) { $("h-from").value = ymd(new Date(new Date().getFullYear(), new Date().getMonth(), 1)); $("h-to").value = today(); }
+  save(loadHistory);
+});
+["h-from", "h-to"].forEach(function (id) { $(id).addEventListener("change", function () { save(loadHistory); }); });
+$("h-all").addEventListener("change", function () {
+  var on = $("h-all").checked;
+  histShown().forEach(function (x) { if (on) picked[x.id] = true; else delete picked[x.id]; });
+  renderHistory();
+});
+$("h-bulk-clear").addEventListener("click", function () { picked = {}; renderHistory(); });
+$("h-bulk-del").addEventListener("click", function () {
+  var btn = $("h-bulk-del"), ids = Object.keys(picked).map(Number);
+  if (!ids.length) return;
+  if (!btn.classList.contains("armed")) {
+    btn.classList.add("armed");
+    btn.textContent = fmt(ids.length) + "건 삭제 · 한 번 더 누르세요";
+    return;
+  }
+  deleteTx(ids, function (msg) { showErr(msg); });
+});
+$("h-rows").addEventListener("change", function (e) {
+  var c = e.target.closest("input[data-pick]");
+  if (!c) return;
+  var id = Number(c.getAttribute("data-pick"));
+  if (c.checked) picked[id] = true; else delete picked[id];
+  renderHistory();
+});
+$("h-rows").addEventListener("click", function (e) {
+  var t = e.target.closest("button");
+  if (!t) return;
+  if (t.hasAttribute("data-hedit")) { openTxEdit(Number(t.getAttribute("data-hedit"))); return; }
+  if (t.hasAttribute("data-hdel")) {
+    if (!t.hasAttribute("data-armed")) { t.setAttribute("data-armed", "1"); t.textContent = "한 번 더"; t.classList.add("armed-mini"); return; }
+    deleteTx([Number(t.getAttribute("data-hdel"))], function (msg) { showErr(msg); });
+  }
+});
+
+// 기록 수정 창
+function openTxEdit(id) {
+  var x = hist.concat(txs).find(function (y) { return y.id === id; });
+  if (!x) return;
+  txEdit = x;
+  $(x.type === "out" ? "te-out" : "te-in").checked = true;
+  $("te-book").innerHTML = books.map(function (b) { return '<option value="' + b.id + '">' + esc(b.title) + '</option>'; }).join("");
+  $("te-book").value = String(x.book_id);
+  $("te-qty").value = x.quantity;
+  $("te-date").value = x.date;
+  $("te-memo").value = x.memo || "";
+  $("te-sub").textContent = "처음 기록: " + x.date + " · " + (x.type === "in" ? "입고 " : "출고 ") + fmt(x.quantity) + "권";
+  $("te-del").classList.remove("armed");
+  $("te-del").textContent = "기록 삭제";
+  renderTxEditPreview();
+  openDlg("txe-dlg");
+}
+function txEditChanges() {
+  var nb = Number($("te-book").value), nt = $("te-out").checked ? "out" : "in", nq = Math.floor(Number($("te-qty").value));
+  return { book_id: nb, type: nt, quantity: nq, changes: [
+    { book_id: txEdit.book_id, type: txEdit.type, quantity: txEdit.quantity, sign: -1 },
+    { book_id: nb, type: nt, quantity: nq > 0 ? nq : 0, sign: 1 }
+  ] };
+}
+function renderTxEditPreview() {
+  if (!txEdit) return;
+  var c = txEditChanges(), box = $("te-preview"), btn = $("te-save");
+  box.className = "preview full";
+  if (!c.quantity || c.quantity < 1) { box.textContent = "수량을 1권 이상 입력해 주세요."; btn.disabled = true; return; }
+  var bad = stockAfter(c.changes);
+  if (bad.length) {
+    box.className = "preview full err";
+    box.textContent = bad.map(function (r) { return "\u201c" + bookTitle(r.id) + "\u201d 재고가 " + fmt(r.after) + "권"; }).join(", ") + "이 되어 저장할 수 없습니다.";
+    btn.disabled = true; return;
+  }
+  var delta = {};
+  c.changes.forEach(function (ch) { delta[ch.book_id] = (delta[ch.book_id] || 0) + (ch.type === "in" ? ch.quantity : -ch.quantity) * ch.sign; });
+  box.innerHTML = Object.keys(delta).map(function (id) {
+    var now = totals(Number(id)).stock;
+    return esc(bookTitle(Number(id)) || "") + " 재고 <strong>" + fmt(now) + "권</strong> → <strong>" + fmt(now + delta[id]) + "권</strong>";
+  }).join("<br>");
+  btn.disabled = false;
+}
+["te-book", "te-qty", "te-in", "te-out"].forEach(function (id) { $(id).addEventListener("input", renderTxEditPreview); $(id).addEventListener("change", renderTxEditPreview); });
+$("txe-form").addEventListener("submit", function (e) {
+  e.preventDefault();
+  var c = txEditChanges();
+  if (!c.quantity || c.quantity < 1 || stockAfter(c.changes).length) return;
+  var id = txEdit.id, fields = { book_id: c.book_id, type: c.type, quantity: c.quantity, date: $("te-date").value || txEdit.date, memo: $("te-memo").value.trim() };
+  closeDlg("txe-dlg");
+  save(async function () {
+    need(await db.from("transactions").update(fields).eq("id", id));
+    await loadAll();
+    if ($("view-history").hidden) await loadHistory();
+    sayDone("입출고 기록을 수정했습니다. 재고를 다시 계산했습니다.");
+  });
+});
+$("te-del").addEventListener("click", function () {
+  var btn = $("te-del");
+  if (!btn.classList.contains("armed")) { btn.classList.add("armed"); btn.textContent = "한 번 더 누르면 삭제됩니다"; return; }
+  var id = txEdit.id;
+  closeDlg("txe-dlg");
+  deleteTx([id], function (msg) { showErr(msg); });
+});
+$("txe-dlg").addEventListener("click", function (e) { if (e.target === $("txe-dlg")) closeDlg("txe-dlg"); });
 
 // 기록 삭제 (삭제하면 재고가 음수가 되는 경우는 막는다)
 $("log").addEventListener("click", function (e) {
@@ -608,10 +1065,10 @@ $("log").addEventListener("click", function (e) {
 });
 
 // 필터와 검색
-document.querySelectorAll(".chips button").forEach(function (b) {
+document.querySelectorAll(".chips button[data-filter]").forEach(function (b) {
   b.addEventListener("click", function () {
     filter = b.getAttribute("data-filter");
-    document.querySelectorAll(".chips button").forEach(function (o) { o.setAttribute("aria-pressed", String(o === b)); });
+    document.querySelectorAll(".chips button[data-filter]").forEach(function (o) { o.setAttribute("aria-pressed", String(o === b)); });
     render();
   });
 });
@@ -642,8 +1099,12 @@ document.querySelectorAll(".views button").forEach(function (b) {
     $("view-stock").hidden = v !== "stock";
     $("view-vendors").hidden = v !== "vendors";
     $("view-calendar").hidden = v !== "calendar";
+    $("view-history").hidden = v !== "history";
+    $("view-books").hidden = v !== "books";
+    if (v === "history") save(loadHistory);
   });
 });
+function showView(v) { document.querySelector('.views button[data-view="' + v + '"]').click(); }
 
 // 주문 일정
 $("cal-prev").addEventListener("click", function () { calM--; if (calM < 0) { calM = 11; calY--; } renderCalendar(); });
@@ -833,13 +1294,13 @@ $("add-form").addEventListener("submit", function (e) {
     return;
   }
   var supId = Number($("a-sup").value) || null;
-  var row = { title: title, category: $("a-cat").value.trim(), supplier_id: supId, min_stock: Math.max(0, Math.floor(Number($("a-min").value)) || 0) };
+  var row = { title: title, year: Number($("a-year").value) || null, class_type: $("a-class").value || null, memo: $("a-memo").value.trim(), supplier_id: supId, min_stock: Math.max(0, Math.floor(Number($("a-min").value)) || 0) };
   var init = Math.max(0, Math.floor(Number($("a-init").value)) || 0);
   closeDlg("add-dlg");
   save(async function () {
     var made = need(await db.from("books").insert(row).select().single());
     if (init > 0) need(await db.from("transactions").insert({ book_id: made.id, type: "in", quantity: init, date: today(), memo: "처음 재고" }));
-    $("a-title").value = ""; $("a-cat").value = ""; $("a-init").value = "0"; $("add-err").hidden = true;
+    $("a-title").value = ""; $("a-memo").value = ""; $("a-init").value = "0"; $("add-err").hidden = true;
     await loadAll();
     $("f-book").value = String(made.id);
     render();
@@ -863,6 +1324,19 @@ function resetImport(label) {
 }
 function txt(v) { return String(v == null ? "" : v).trim(); }
 function nameKey(v) { return String(v).replace(/\s+/g, "").toLowerCase(); }
+function parseYear(v) {
+  v = txt(v);
+  if (!v) return { ok: true, val: null };
+  var m = v.match(/^([123])\s*(년차|년|학년)?$/);
+  return m ? { ok: true, val: Number(m[1]) } : { ok: false, val: null };
+}
+function parseClass(v) {
+  v = txt(v).toUpperCase();
+  if (!v) return { ok: true, val: null };
+  if (/^RT|정규/.test(v)) return { ok: true, val: "RT" };
+  if (/^ET|방과후/.test(v)) return { ok: true, val: "ET" };
+  return { ok: false, val: null };
+}
 function readRows(rows) {
   var seen = {}, out = [];
   rows.forEach(function (raw) {
@@ -874,11 +1348,14 @@ function readRows(rows) {
     var min = minRaw === "" ? 10 : Number(minRaw), stock = stockRaw === "" ? 0 : Number(stockRaw);
     var supName = txt(r["주문처"]);
     var sp = supName ? suppliers.filter(function (x) { return nameKey(x.name) === nameKey(supName); })[0] : null;
-    var row = { title: title, category: txt(r["분류"]), supplier: sp ? sp.name : supName, supId: sp ? sp.id : null, min: min, stock: stock, ok: true, note: "등록", cls: "good" };
+    var yr = parseYear(r["연차"]), cl = parseClass(r["수업분류"] != null ? r["수업분류"] : r["수업"]);
+    var memo = txt(r["메모"] != null ? r["메모"] : (r["과목명"] != null ? r["과목명"] : r["분류"]));
+    var row = { title: title, year: yr.val, class_type: cl.val, memo: memo, supplier: sp ? sp.name : supName, supId: sp ? sp.id : null, min: min, stock: stock, ok: true, note: "등록", cls: "good" };
     var key = title.toLowerCase();
     if (hasTitle(title)) { row.ok = false; row.note = "이미 등록된 교재라 건너뜀"; row.cls = "skip"; }
     else if (seen[key]) { row.ok = false; row.note = "파일 안에서 중복이라 건너뜀"; row.cls = "skip"; }
     else if (!isFinite(min) || !isFinite(stock) || min < 0 || stock < 0 || min % 1 || stock % 1) { row.ok = false; row.note = "부족 기준·현재 재고는 0 이상의 정수로 적어 주세요"; row.cls = "bad"; }
+    else if (!yr.ok || !cl.ok) { row.note = "등록 · " + (!yr.ok ? "연차" : "수업 분류") + "를 알아볼 수 없어 비워 둠"; row.cls = "warn"; }
     else if (supName && !sp) { row.note = "등록 · 등록된 업체가 아니라 주문처는 미지정"; row.cls = "warn"; row.unmatched = true; }
     seen[key] = true;
     out.push(row);
@@ -909,7 +1386,7 @@ $("xls-file").addEventListener("change", function () {
     var okN = pending.filter(function (r) { return r.ok; }).length;
     var miss = pending.filter(function (r) { return r.ok && r.unmatched; }).length;
     $("xls-prev").innerHTML = pending.map(function (r) {
-      return '<tr><td>' + esc(r.title) + '</td><td>' + esc(r.supplier || "미지정") + '</td><td class="r num">' + (isFinite(r.stock) ? fmt(r.stock) : "?") + '</td><td class="' + r.cls + '">' + esc(r.note) + '</td></tr>';
+      return '<tr><td>' + esc(r.title) + '</td><td>' + esc(tagsText(r)) + '</td><td>' + esc(r.supplier || "미지정") + '</td><td class="r num">' + (isFinite(r.stock) ? fmt(r.stock) : "?") + '</td><td class="' + r.cls + '">' + esc(r.note) + '</td></tr>';
     }).join("");
     $("xls-prev-wrap").hidden = pending.length === 0;
     xlsMsg("파일에서 " + fmt(pending.length) + "줄을 읽었습니다. 그중 " + fmt(okN) + "종을 등록할 수 있습니다." +
@@ -925,7 +1402,7 @@ $("xls-go").addEventListener("click", function () {
   closeDlg("add-dlg");
   save(async function () {
     var made = need(await db.from("books").insert(rows.map(function (r) {
-      return { title: r.title, category: r.category, supplier_id: r.supId, min_stock: r.min };
+      return { title: r.title, year: r.year, class_type: r.class_type, memo: r.memo, supplier_id: r.supId, min_stock: r.min };
     })).select());
     var idOf = {};
     made.forEach(function (b) { idOf[b.title] = b.id; });
@@ -946,12 +1423,12 @@ $("sample-btn").addEventListener("click", function () {
   if (typeof XLSX === "undefined") { xlsMsg("엑셀 기능을 불러오지 못했습니다. 인터넷 연결을 확인하고 페이지를 새로고침해 주세요.", true); return; }
   var n1 = suppliers[0] ? suppliers[0].name : "", n2 = suppliers[1] ? suppliers[1].name : n1;
   var wsB = XLSX.utils.aoa_to_sheet([
-    ["교재명", "분류", "부족 기준", "현재 재고", "주문처"],
-    ["중등 수학 3-1 개념", "수학", 15, 40, n1],
-    ["영어 듣기 기초", "영어", 10, 25, n2],
-    ["사회 핵심 요약", "사회", 10, 0, ""]
+    ["교재명", "연차", "수업 분류", "부족 기준", "현재 재고", "주문처", "메모"],
+    ["중등 수학 3-1 개념", "1년차", "RT", 15, 40, n1, ""],
+    ["영어 듣기 기초", "2년차", "ET", 10, 25, n2, "2학기부터 개정판"],
+    ["사회 핵심 요약", "3년차", "RT", 10, 0, "", ""]
   ]);
-  wsB["!cols"] = [{ wch: 26 }, { wch: 10 }, { wch: 11 }, { wch: 11 }, { wch: 18 }];
+  wsB["!cols"] = [{ wch: 26 }, { wch: 8 }, { wch: 10 }, { wch: 11 }, { wch: 11 }, { wch: 18 }, { wch: 28 }];
   var wsS = XLSX.utils.aoa_to_sheet([["업체명", "담당자", "사이트", "주문 방법", "납기", "메모"]].concat(suppliers.map(function (x) {
     return [x.name, contactsOf(x).map(function (c) { return [c.name, c.phone, c.role ? "(" + c.role + ")" : ""].filter(Boolean).join(" "); }).join(" / "), x.website || "", x.order_method, x.lead_time, x.memo];
   })));
