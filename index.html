@@ -1,0 +1,577 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>교재 재고관리</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<style>
+/* 레이아웃: 위에 요약 한 줄, 왼쪽에 재고 현황 표(넓게), 오른쪽에 입출고 입력과 이력(좁게). 좁은 화면에서는 입력이 표 위로 온다. */
+:root {
+  --bg: #f1f4f7;
+  --surface: #ffffff;
+  --sunken: #f6f8fa;
+  --ink: #18222e;
+  --muted: #5f6c7b;
+  --line: #d9e0e8;
+  --accent: #1d55b0;
+  --accent-ink: #ffffff;
+  --accent-soft: #e6eefb;
+  --in: #14784c;
+  --in-soft: #e2f3ea;
+  --out: #b4501f;
+  --out-soft: #fbebe1;
+  --warn: #946200;
+  --warn-soft: #fbf0d3;
+  --crit: #b3261e;
+  --crit-soft: #fbe4e2;
+  --font-body: "IBM Plex Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", sans-serif;
+  --font-num: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --radius: 10px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #10161d;
+    --surface: #18212b;
+    --sunken: #131b24;
+    --ink: #e7edf3;
+    --muted: #94a2b2;
+    --line: #2b3745;
+    --accent: #7fb0ff;
+    --accent-ink: #0c1a2e;
+    --accent-soft: #1c2f4d;
+    --in: #5fd39b;
+    --in-soft: #153526;
+    --out: #f2a274;
+    --out-soft: #3d2416;
+    --warn: #ecc35a;
+    --warn-soft: #3a2f10;
+    --crit: #ff8c84;
+    --crit-soft: #431b18;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #10161d;
+  --surface: #18212b;
+  --sunken: #131b24;
+  --ink: #e7edf3;
+  --muted: #94a2b2;
+  --line: #2b3745;
+  --accent: #7fb0ff;
+  --accent-ink: #0c1a2e;
+  --accent-soft: #1c2f4d;
+  --in: #5fd39b;
+  --in-soft: #153526;
+  --out: #f2a274;
+  --out-soft: #3d2416;
+  --warn: #ecc35a;
+  --warn-soft: #3a2f10;
+  --crit: #ff8c84;
+  --crit-soft: #431b18;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 15px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+.num { font-family: var(--font-num); font-variant-numeric: tabular-nums; }
+.wrap { max-width: 1180px; margin: 0 auto; padding: 24px 20px 56px; display: flex; flex-direction: column; gap: 20px; }
+
+/* 머리말 */
+.top { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px; }
+.top h1 { margin: 0; font-size: 24px; font-weight: 700; letter-spacing: -0.01em; }
+.top p { margin: 2px 0 0; color: var(--muted); font-size: 14px; }
+.sample { font-size: 13px; color: var(--warn); background: var(--warn-soft); padding: 4px 10px; border-radius: 999px; font-weight: 500; }
+
+/* 요약 */
+.summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+.tile { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; display: flex; flex-direction: column; gap: 2px; }
+.tile .label { font-size: 13px; color: var(--muted); display: flex; justify-content: space-between; gap: 8px; }
+.tile .label em { font-style: normal; font-size: 12px; color: var(--accent); }
+button.tile { font: inherit; color: inherit; text-align: left; cursor: pointer; }
+button.tile:hover { border-color: var(--accent); }
+.tile .value { font-size: 26px; font-weight: 600; line-height: 1.2; }
+.tile .unit { font-family: var(--font-body); font-size: 14px; font-weight: 500; color: var(--muted); margin-left: 3px; }
+.tile.alert .value { color: var(--crit); }
+.tile.caution .value { color: var(--warn); }
+
+/* 본문 2단 */
+.cols { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 20px; align-items: start; }
+.side { display: flex; flex-direction: column; gap: 20px; }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); }
+.panel-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; padding: 14px 16px; border-bottom: 1px solid var(--line); }
+.panel-head h2 { margin: 0; font-size: 16px; font-weight: 600; }
+.panel-body { padding: 16px; }
+
+/* 표 도구 */
+.tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.chips { display: flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.chips button { border: 0; background: var(--surface); color: var(--muted); font: inherit; font-size: 13px; padding: 6px 12px; cursor: pointer; }
+.chips button + button { border-left: 1px solid var(--line); }
+.chips button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+
+input, select, button { font-family: inherit; }
+input[type="text"], input[type="search"], input[type="number"], input[type="date"], select {
+  width: 100%; font-size: 15px; color: var(--ink); background: var(--surface);
+  border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; min-height: 38px;
+}
+input[type="search"] { width: 180px; font-size: 14px; min-height: 34px; padding: 6px 10px; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* 재고 표 */
+.table-scroll { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; min-width: 580px; }
+th { text-align: left; font-size: 12.5px; font-weight: 500; color: var(--muted); padding: 10px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+td { padding: 11px 12px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+tbody tr:last-child td { border-bottom: 0; }
+th.r, td.r { text-align: right; }
+td.title { font-weight: 500; }
+td.title small { display: block; font-weight: 400; color: var(--muted); font-size: 12.5px; }
+tr.sel td { background: var(--accent-soft); }
+.stock { display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
+.stock b { font-family: var(--font-num); font-size: 18px; font-weight: 600; min-width: 3ch; text-align: right; }
+.bar { width: 64px; height: 6px; border-radius: 3px; background: var(--sunken); border: 1px solid var(--line); overflow: hidden; flex: none; }
+.bar i { display: block; height: 100%; background: var(--in); }
+.bar.low i { background: var(--warn); }
+.bar.none i { background: var(--crit); }
+.pill { display: inline-block; font-size: 12.5px; font-weight: 600; padding: 2px 9px; border-radius: 999px; white-space: nowrap; }
+.pill.ok { color: var(--in); background: var(--in-soft); }
+.pill.low { color: var(--warn); background: var(--warn-soft); }
+.pill.none { color: var(--crit); background: var(--crit-soft); }
+.pill.in { color: var(--in); background: var(--in-soft); }
+.pill.out { color: var(--out); background: var(--out-soft); }
+.rowbtns { display: flex; gap: 6px; justify-content: flex-end; }
+.mini { border: 1px solid var(--line); background: var(--surface); color: var(--ink); border-radius: 7px; font-size: 13px; padding: 4px 9px; cursor: pointer; white-space: nowrap; }
+.mini:hover { border-color: var(--accent); color: var(--accent); }
+.empty { padding: 28px 16px; text-align: center; color: var(--muted); }
+
+/* 교재명 버튼과 상세 창 */
+.linkbtn { border: 0; background: none; padding: 0; font: inherit; font-weight: 600; color: var(--accent); cursor: pointer; text-align: left; text-decoration: underline; text-decoration-color: transparent; text-underline-offset: 3px; }
+.linkbtn:hover { text-decoration-color: currentColor; }
+td.sup { color: var(--muted); font-size: 14px; white-space: nowrap; }
+dialog.detail { border: 1px solid var(--line); border-radius: 14px; padding: 0; width: min(560px, calc(100% - 32px)); max-height: calc(100% - 48px); background: var(--surface); color: var(--ink); box-shadow: 0 18px 50px rgba(10, 20, 35, .28); }
+dialog.detail::backdrop { background: rgba(10, 18, 28, .5); }
+.d-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding: 18px 20px 14px; border-bottom: 1px solid var(--line); }
+.d-head h2 { margin: 0; font-size: 19px; font-weight: 700; text-wrap: balance; }
+.d-head p { margin: 2px 0 0; font-size: 13px; color: var(--muted); }
+.d-close { border: 1px solid var(--line); background: var(--surface); color: var(--ink); border-radius: 8px; font-size: 13px; padding: 5px 10px; cursor: pointer; flex: none; }
+.d-body { padding: 16px 20px 20px; display: flex; flex-direction: column; gap: 18px; }
+.d-stats { display: grid; grid-template-columns: 1.2fr 1fr 1fr; gap: 10px; }
+.d-stat { background: var(--sunken); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 2px; }
+.d-stat span { font-size: 12.5px; color: var(--muted); }
+.d-stat b { font-family: var(--font-num); font-size: 20px; font-weight: 600; }
+.d-stat.now b { font-size: 24px; }
+.d-stat .pill { align-self: flex-start; margin-top: 2px; }
+.d-sec h3 { margin: 0 0 8px; font-size: 14px; font-weight: 600; }
+.notice { border-radius: 8px; padding: 9px 12px; font-size: 14px; margin-bottom: 10px; }
+.notice.low { background: var(--warn-soft); color: var(--warn); }
+.notice.none { background: var(--crit-soft); color: var(--crit); }
+dl.info { margin: 0; display: grid; grid-template-columns: 92px 1fr; gap: 6px 12px; font-size: 14px; }
+dl.info dt { color: var(--muted); }
+dl.info dd { margin: 0; overflow-wrap: anywhere; }
+.d-log { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: 10px; max-height: 200px; overflow-y: auto; }
+.d-log li { display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: center; padding: 8px 12px; border-bottom: 1px solid var(--line); font-size: 14px; }
+.d-log li:last-child { border-bottom: 0; }
+.d-log .meta { color: var(--muted); font-size: 13px; }
+.d-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.d-actions button { border-radius: 8px; padding: 10px; font-size: 15px; font-weight: 600; cursor: pointer; border: 1px solid var(--line); background: var(--surface); color: var(--ink); }
+.d-actions button.go-in { background: var(--in); color: var(--surface); border-color: transparent; }
+@media (max-width: 420px) { .d-stats { grid-template-columns: 1fr 1fr; } .d-stat.now { grid-column: 1 / -1; } }
+
+/* 등록 창과 목록 창 */
+.tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; background: var(--sunken); border: 1px solid var(--line); padding: 4px; border-radius: 10px; }
+.tabs button { border: 0; background: none; font: inherit; font-weight: 600; color: var(--muted); padding: 8px 0; border-radius: 7px; cursor: pointer; }
+.tabs button[aria-selected="true"] { background: var(--surface); color: var(--accent); box-shadow: 0 0 0 1px var(--line); }
+.help { margin: 0; font-size: 14px; color: var(--muted); }
+.fmt-scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; }
+table.fmt { min-width: 440px; font-size: 13.5px; }
+table.fmt th, table.fmt td { white-space: nowrap; }
+table.fmt th { background: var(--sunken); color: var(--ink); font-weight: 600; }
+table.fmt td, table.fmt th { padding: 7px 10px; }
+table.fmt td.skip { color: var(--muted); }
+table.fmt td.bad { color: var(--crit); }
+table.fmt td.good { color: var(--in); }
+table.fmt td.warn { color: var(--warn); }
+.ghost { border: 1px solid var(--line); background: var(--surface); color: var(--accent); border-radius: 8px; font-size: 14px; font-weight: 600; padding: 9px 14px; cursor: pointer; }
+.ghost:hover { border-color: var(--accent); }
+.filebox { border: 1.5px dashed var(--line); border-radius: 10px; padding: 14px; background: var(--sunken); display: flex; flex-direction: column; gap: 6px; }
+.filebox input { font-size: 14px; color: var(--ink); max-width: 100%; }
+.msg { font-size: 14px; border-radius: 8px; padding: 9px 12px; background: var(--sunken); color: var(--muted); }
+.msg.err { background: var(--crit-soft); color: var(--crit); }
+.done { margin: 0; padding: 10px 16px; font-size: 14px; color: var(--in); background: var(--in-soft); border-bottom: 1px solid var(--line); }
+.b-list { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: 10px; }
+.b-list li { border-bottom: 1px solid var(--line); }
+.b-list li:last-child { border-bottom: 0; }
+.b-list button { width: 100%; display: grid; grid-template-columns: 1fr auto auto; gap: 12px; align-items: center; padding: 10px 12px; border: 0; background: none; font: inherit; color: inherit; text-align: left; cursor: pointer; }
+.b-list button:hover { background: var(--accent-soft); }
+.b-list .nm { font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
+.b-list .nm small { display: block; font-weight: 400; font-size: 12.5px; color: var(--muted); }
+.b-list .q { font-family: var(--font-num); font-weight: 600; }
+
+.supbox { border: 1px solid var(--line); border-radius: 10px; background: var(--sunken); padding: 12px; }
+.supbox h3 { margin: 0 0 10px; font-size: 13.5px; font-weight: 600; }
+.supbox .form-grid { gap: 10px; }
+
+/* 화면 전환, 업체 관리 */
+.view { display: flex; flex-direction: column; gap: 20px; }
+.view[hidden] { display: none; }
+.views { display: flex; gap: 4px; border-bottom: 1px solid var(--line); }
+.views button { border: 0; background: none; font: inherit; font-size: 15px; font-weight: 600; color: var(--muted); padding: 8px 14px 10px; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.views button[aria-pressed="true"] { color: var(--accent); border-bottom-color: var(--accent); }
+td.dim { color: var(--muted); }
+td.c-need .hint { display: none; }
+.tag { display: inline-block; margin-left: 6px; font-size: 12px; font-weight: 600; color: var(--warn); background: var(--warn-soft); padding: 1px 7px; border-radius: 999px; vertical-align: 1px; white-space: nowrap; }
+.sec-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 8px; }
+.sec-head h3 { margin: 0; }
+.checks { list-style: none; margin: 0 0 10px; padding: 0; border: 1px solid var(--line); border-radius: 10px; max-height: 190px; overflow-y: auto; }
+.checks li { border-bottom: 1px solid var(--line); }
+.checks li:last-child { border-bottom: 0; }
+.checks label { display: flex; gap: 10px; align-items: center; padding: 8px 12px; font-size: 14px; cursor: pointer; }
+.checks small { color: var(--muted); margin-left: auto; white-space: nowrap; }
+details.move summary { cursor: pointer; color: var(--accent); font-weight: 600; font-size: 14px; margin-bottom: 10px; }
+.fmt-cap { margin: 0 0 6px; font-size: 13px; font-weight: 600; }
+.hint { font-size: 12.5px; color: var(--muted); }
+
+/* 로그인, 계정 표시 */
+.wrap[hidden], .gate[hidden] { display: none; }
+.gate { min-height: 100%; display: flex; align-items: flex-start; justify-content: center; padding: 12vh 16px 40px; }
+.gate-card { width: min(380px, 100%); padding: 24px; display: flex; flex-direction: column; gap: 14px; }
+.gate-card h1 { margin: 0; font-size: 22px; }
+.gate-card p { margin: 0; color: var(--muted); font-size: 14px; }
+.gate-card .field { display: flex; flex-direction: column; gap: 4px; }
+.gate-card label { font-size: 13px; color: var(--muted); }
+input[type="password"] { width: 100%; font-size: 16px; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; min-height: 44px; }
+.who { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
+body.busy { cursor: progress; }
+body.busy .primary { opacity: .6; }
+
+/* 교재 추가 */
+details.add { border-top: 1px solid var(--line); }
+details.add summary { cursor: pointer; padding: 12px 16px; color: var(--accent); font-weight: 500; font-size: 14px; }
+.add-form { display: grid; grid-template-columns: 2fr 1fr 1.4fr 1fr 1fr auto; gap: 10px; padding: 0 16px 16px; align-items: end; }
+
+/* 입력 폼 */
+form .field { display: flex; flex-direction: column; gap: 4px; }
+form label, .field > span { font-size: 13px; color: var(--muted); }
+.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.form-grid .full { grid-column: 1 / -1; }
+.seg { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; background: var(--sunken); border: 1px solid var(--line); padding: 4px; border-radius: 10px; }
+.seg label { position: relative; text-align: center; padding: 8px 0; border-radius: 7px; font-size: 15px; font-weight: 600; color: var(--muted); cursor: pointer; }
+.seg input { position: absolute; opacity: 0; inset: 0; cursor: pointer; }
+.seg label:has(input:checked).t-in { background: var(--in); color: var(--surface); }
+.seg label:has(input:checked).t-out { background: var(--out); color: var(--surface); }
+.seg label:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+.preview { background: var(--sunken); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; font-size: 14px; color: var(--muted); }
+.preview strong { color: var(--ink); font-family: var(--font-num); font-weight: 600; }
+.preview.err { color: var(--crit); background: var(--crit-soft); border-color: transparent; }
+.primary { width: 100%; border: 0; border-radius: 8px; background: var(--accent); color: var(--accent-ink); font-size: 15px; font-weight: 600; padding: 11px; cursor: pointer; }
+.primary:disabled { opacity: .45; cursor: not-allowed; }
+.primary.sm { width: auto; padding: 9px 16px; min-height: 38px; }
+
+/* 이력 */
+.log { list-style: none; margin: 0; padding: 0; max-height: 420px; overflow-y: auto; }
+.log li { display: grid; grid-template-columns: auto 1fr auto; gap: 4px 10px; padding: 11px 16px; border-bottom: 1px solid var(--line); align-items: center; }
+.log li:last-child { border-bottom: 0; }
+.log .what { font-weight: 500; min-width: 0; overflow-wrap: anywhere; }
+.log .qty { font-family: var(--font-num); font-weight: 600; font-size: 15px; }
+.log .qty.in { color: var(--in); }
+.log .qty.out { color: var(--out); }
+.log .meta { grid-column: 2 / 3; font-size: 12.5px; color: var(--muted); }
+.log .undo { grid-column: 3 / 4; justify-self: end; border: 0; background: none; color: var(--muted); font-size: 12.5px; text-decoration: underline; cursor: pointer; padding: 0; }
+.log .undo:hover { color: var(--crit); }
+.flash { animation: flash 1.2s ease-out; }
+@keyframes flash { from { background: var(--accent-soft); } to { background: transparent; } }
+@media (prefers-reduced-motion: reduce) { .flash { animation: none; } }
+
+#open-tx { display: none; }
+@media (max-width: 900px) {
+  #tx-panel { display: none; }
+  #open-tx { display: block; min-height: 44px; }
+  .cols { grid-template-columns: minmax(0, 1fr); }
+  .summary { grid-template-columns: repeat(2, 1fr); }
+  .add-form { grid-template-columns: 1fr 1fr; }
+  .add-form .wide { grid-column: 1 / -1; }
+}
+/* 휴대폰: 표를 카드 목록으로 바꿔 옆으로 밀지 않아도 재고가 보이게 한다 */
+@media (max-width: 640px) {
+  .wrap { padding: 16px 16px 48px; }
+  input[type="text"], input[type="search"], input[type="number"], input[type="date"], select { font-size: 16px; min-height: 44px; }
+  input[type="search"] { width: 100%; }
+  .tools { width: 100%; }
+  .tools .chips { flex: 1; }
+  .tools .chips button { flex: 1; padding: 10px 8px; font-size: 14px; }
+  .tools .primary.sm, .tools #open-tx { width: 100%; min-height: 44px; }
+  table.cards { min-width: 0; display: block; }
+  table.cards thead { display: none; }
+  table.cards tbody { display: block; }
+  table.cards tr { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; padding: 14px 16px; border-bottom: 1px solid var(--line); align-items: center; }
+  table.cards tr:last-child { border-bottom: 0; }
+  table.cards td { display: block; padding: 0; border: 0; text-align: left; }
+  table.cards tr.sel { background: var(--accent-soft); }
+  table.cards td.title { font-size: 16px; }
+  table.cards td[data-label]::before { content: attr(data-label) " "; color: var(--muted); font-family: var(--font-body); }
+  table.cards td.sup, table.cards td.dim { font-size: 13.5px; white-space: normal; }
+  table.cards td.c-stock { grid-column: 2; grid-row: 1; }
+  table.cards td.c-stock .bar { display: none; }
+  table.cards td.c-stock b { font-size: 22px; }
+  table.cards td.c-stock b::after { content: "권"; font-family: var(--font-body); font-size: 13px; font-weight: 500; color: var(--muted); margin-left: 2px; }
+  table.cards td.c-status { grid-column: 2; grid-row: 2; justify-self: end; }
+  table.cards td.c-btns, table.cards td.c-wide, table.cards td.empty { grid-column: 1 / -1; }
+  table.cards td.c-btns { margin-top: 8px; }
+  table.cards .rowbtns .mini { flex: 1; min-height: 42px; font-size: 15px; font-weight: 600; }
+  table.cards td.c-need { grid-column: 2; grid-row: 1; justify-self: end; }
+  table.cards td.c-need .hint { display: inline; }
+  table.cards td.c-wide.r { color: var(--ink); }
+  .d-actions button, .primary { min-height: 46px; }
+  .log .undo { padding: 6px 0; }
+}
+@media (max-width: 420px) {
+  input[type="search"] { width: 100%; }
+  .tools { width: 100%; }
+}
+</style>
+</head>
+<body>
+<main class="gate" id="setup" hidden>
+  <div class="panel gate-card">
+    <h1>교재 재고관리</h1>
+    <p>아직 Supabase 연결 정보가 없습니다. <code>config.js</code> 파일에 프로젝트 URL과 anon 키를 넣어 주세요. 방법은 README.md에 있습니다.</p>
+  </div>
+</main>
+
+<main class="gate" id="login" hidden>
+  <form class="panel gate-card" id="login-form">
+    <h1>교재 재고관리</h1>
+    <p>공용 계정으로 로그인해 주세요.</p>
+    <div class="field"><label for="l-email">이메일</label><input type="text" id="l-email" inputmode="email" autocomplete="username" required></div>
+    <div class="field"><label for="l-pass">비밀번호</label><input type="password" id="l-pass" autocomplete="current-password" required></div>
+    <div class="msg err" id="login-err" role="alert" hidden></div>
+    <button type="submit" class="primary" id="login-btn">로그인</button>
+  </form>
+</main>
+
+<div class="wrap" id="app" hidden>
+
+  <header class="top">
+    <div>
+      <h1>교재 재고관리</h1>
+      <p>입고와 출고를 기록하면 현재 재고가 자동으로 계산됩니다. 교재명을 누르면 상세 정보와 주문처가 나옵니다.</p>
+    </div>
+    <div class="who"><span id="who"></span><button type="button" class="mini" id="reload">새로고침</button><button type="button" class="mini" id="logout">로그아웃</button></div>
+  </header>
+
+  <p class="msg err" id="app-err" role="alert" hidden></p>
+
+  <nav class="views" aria-label="화면 전환">
+    <button type="button" data-view="stock" aria-pressed="true">재고 현황</button>
+    <button type="button" data-view="vendors" aria-pressed="false">업체 관리</button>
+  </nav>
+
+  <div class="view" id="view-stock">
+  <section class="summary" aria-label="요약">
+    <button type="button" class="tile" data-list="all"><span class="label">등록 교재<em>목록 보기</em></span><span class="value num"><span id="s-books">0</span><span class="unit">종</span></span></button>
+    <button type="button" class="tile" data-list="stock"><span class="label">전체 재고<em>목록 보기</em></span><span class="value num"><span id="s-total">0</span><span class="unit">권</span></span></button>
+    <button type="button" class="tile caution" id="t-low" data-list="low"><span class="label">재고 부족<em>목록 보기</em></span><span class="value num"><span id="s-low">0</span><span class="unit">종</span></span></button>
+    <button type="button" class="tile alert" id="t-none" data-list="none"><span class="label">품절<em>목록 보기</em></span><span class="value num"><span id="s-none">0</span><span class="unit">종</span></span></button>
+  </section>
+
+  <div class="cols">
+
+    <section class="panel" aria-labelledby="h-stock">
+      <div class="panel-head">
+        <h2 id="h-stock">재고 현황</h2>
+        <div class="tools">
+          <div class="chips" role="group" aria-label="상태 필터">
+            <button type="button" data-filter="all" aria-pressed="true">전체</button>
+            <button type="button" data-filter="attn" aria-pressed="false">부족·품절만</button>
+          </div>
+          <input type="search" id="q" placeholder="교재명·업체 검색" aria-label="교재명 또는 업체 검색">
+          <button type="button" class="ghost" id="open-tx">입출고 기록</button>
+          <button type="button" class="primary sm" id="open-add">+ 새 교재 등록</button>
+        </div>
+      </div>
+      <p class="done" id="done" role="status" hidden></p>
+      <div class="table-scroll">
+        <table class="cards">
+          <thead>
+            <tr>
+              <th>교재</th>
+              <th>주문처</th>
+              <th class="r">현재 재고</th>
+              <th>상태</th>
+              <th class="r">기록</th>
+            </tr>
+          </thead>
+          <tbody id="rows"></tbody>
+        </table>
+        <div class="empty" id="no-rows" hidden>조건에 맞는 교재가 없습니다.</div>
+      </div>
+    </section>
+
+    <div class="side">
+      <section class="panel" id="tx-panel" aria-labelledby="h-form">
+        <div class="panel-head"><h2 id="h-form">입출고 기록</h2></div>
+        <div class="panel-body">
+          <form id="tx-form" autocomplete="off">
+            <div class="form-grid">
+              <div class="field full">
+                <span>구분</span>
+                <div class="seg">
+                  <label class="t-in"><input type="radio" name="type" id="type-in" value="in" checked>입고</label>
+                  <label class="t-out"><input type="radio" name="type" id="type-out" value="out">출고</label>
+                </div>
+              </div>
+              <div class="field full"><label for="f-book">교재</label><select id="f-book"></select></div>
+              <div class="field"><label for="f-qty">수량(권)</label><input type="number" id="f-qty" min="1" step="1" value="10" required></div>
+              <div class="field"><label for="f-date">날짜</label><input type="date" id="f-date" required></div>
+              <div class="field full"><label for="f-memo">메모 (선택)</label><input type="text" id="f-memo" placeholder="예: 겨울특강 A반 배부"></div>
+              <div class="preview full" id="preview" aria-live="polite"></div>
+              <div class="full"><button type="submit" class="primary" id="submit">입고 기록하기</button></div>
+            </div>
+          </form>
+        </div>
+      </section>
+
+      <section class="panel" aria-labelledby="h-log">
+        <div class="panel-head"><h2 id="h-log">최근 입출고</h2><span class="num" style="color:var(--muted);font-size:13px" id="log-count"></span></div>
+        <ul class="log" id="log"></ul>
+      </section>
+    </div>
+
+  </div>
+  </div>
+
+  <div class="view" id="view-vendors" hidden>
+    <section class="panel" aria-labelledby="h-vendors">
+      <div class="panel-head">
+        <h2 id="h-vendors">업체 관리</h2>
+        <div class="tools"><button type="button" class="primary sm" id="open-sup">+ 새 업체 등록</button></div>
+      </div>
+      <div class="table-scroll">
+        <table class="cards">
+          <thead><tr><th>업체</th><th>담당자</th><th>전화</th><th>주문 방법</th><th class="r">담당 교재</th><th>주문 필요</th></tr></thead>
+          <tbody id="sup-rows"></tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+</div>
+
+<dialog class="detail" id="sup-dlg" aria-labelledby="sv-title">
+  <div class="d-head">
+    <div><h2 id="sv-title"></h2><p id="sv-sub"></p></div>
+    <button type="button" class="d-close" data-close="sup-dlg">닫기</button>
+  </div>
+  <div class="d-body" id="sv-body"></div>
+</dialog>
+
+<dialog class="detail" id="supedit-dlg" aria-labelledby="se-title">
+  <div class="d-head">
+    <div><h2 id="se-title">새 업체 등록</h2><p>업체명만 필수입니다. 나머지는 나중에 채워도 됩니다.</p></div>
+    <button type="button" class="d-close" data-close="supedit-dlg">닫기</button>
+  </div>
+  <div class="d-body">
+    <form class="form-grid" id="sup-form" autocomplete="off">
+      <div class="field full"><label for="e-name">업체명</label><input type="text" id="e-name" required placeholder="예: 가람교재유통"></div>
+      <div class="field"><label for="e-contact">담당자</label><input type="text" id="e-contact" placeholder="예: 김 대리"></div>
+      <div class="field"><label for="e-phone">전화</label><input type="text" id="e-phone" placeholder="예: 02-000-0000"></div>
+      <div class="field"><label for="e-method">주문 방법</label><input type="text" id="e-method" placeholder="예: 전화 주문"></div>
+      <div class="field"><label for="e-lead">납기</label><input type="text" id="e-lead" placeholder="예: 주문 후 2~3일"></div>
+      <div class="field full"><label for="e-memo">메모</label><input type="text" id="e-memo" placeholder="예: 20권 이상 배송비 없음"></div>
+      <div class="msg err full" id="sup-err" hidden></div>
+      <div class="full"><button type="submit" class="primary" id="sup-save">업체 등록하기</button></div>
+    </form>
+  </div>
+</dialog>
+
+<dialog class="detail" id="add-dlg" aria-labelledby="add-title">
+  <div class="d-head">
+    <div><h2 id="add-title">새 교재 등록</h2><p>한 권씩 입력하거나, 엑셀 파일로 여러 교재를 한 번에 등록합니다.</p></div>
+    <button type="button" class="d-close" data-close="add-dlg">닫기</button>
+  </div>
+  <div class="d-body">
+    <div class="tabs" role="tablist">
+      <button type="button" role="tab" id="tab-one" aria-selected="true" aria-controls="pane-one">직접 입력</button>
+      <button type="button" role="tab" id="tab-xls" aria-selected="false" aria-controls="pane-xls">엑셀로 한 번에</button>
+    </div>
+
+    <div id="pane-one" role="tabpanel" aria-labelledby="tab-one">
+      <form class="form-grid" id="add-form" autocomplete="off">
+        <div class="field full"><label for="a-title">교재명</label><input type="text" id="a-title" required placeholder="예: 중등 수학 3-1"></div>
+        <div class="field"><label for="a-cat">분류</label><input type="text" id="a-cat" placeholder="예: 수학"></div>
+        <div class="field"><label for="a-min">부족 기준(권)</label><input type="number" id="a-min" min="0" value="10"></div>
+        <div class="field"><label for="a-init">현재 재고(권)</label><input type="number" id="a-init" min="0" value="0"></div>
+        <div class="field"><label for="a-sup">주문처</label><select id="a-sup"></select></div>
+        <p class="hint full" style="margin:0">주문처는 등록된 업체 중에서 고릅니다. 목록에 없는 업체는 업체 관리에서 먼저 등록해 주세요. 주문처는 나중에 바꿀 수 있습니다.</p>
+        <div class="msg err full" id="add-err" hidden></div>
+        <div class="full"><button type="submit" class="primary">교재 등록하기</button></div>
+      </form>
+    </div>
+
+    <div id="pane-xls" role="tabpanel" aria-labelledby="tab-xls" hidden style="display:none;flex-direction:column;gap:14px">
+      <p class="help">첫 줄에 아래 제목을 넣고, 둘째 줄부터 교재를 한 줄에 하나씩 적어 주세요. <strong>교재명</strong>만 필수입니다. 주문처에는 등록된 업체 이름을 그대로 적어 주세요.</p>
+      <div class="fmt-scroll">
+        <table class="fmt">
+          <thead><tr><th>교재명</th><th>분류</th><th class="r">부족 기준</th><th class="r">현재 재고</th><th>주문처</th></tr></thead>
+          <tbody>
+            <tr><td>중등 수학 3-1 개념</td><td>수학</td><td class="r num">15</td><td class="r num">40</td><td>가람교재유통</td></tr>
+            <tr><td>영어 듣기 기초</td><td>영어</td><td class="r num">10</td><td class="r num">25</td><td>새솔북스</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="help"><strong>지금 등록된 업체</strong> · <span id="sup-names"></span><br>예시 파일의 둘째 시트에도 이 업체 목록이 참고용으로 들어 있습니다.</p>
+      <div><button type="button" class="ghost" id="sample-btn">예시 엑셀 파일 받기</button>
+        <p class="help" id="sample-note" style="margin-top:6px">예시 줄을 지우고 교재를 적은 뒤 아래에서 선택해 주세요.</p></div>
+      <div class="filebox">
+        <label for="xls-file" style="font-size:13px;color:var(--muted)">등록할 엑셀 파일 (.xlsx, .xls, .csv)</label>
+        <input type="file" id="xls-file" accept=".xlsx,.xls,.csv">
+      </div>
+      <div class="msg" id="xls-msg" hidden></div>
+      <div class="fmt-scroll" id="xls-prev-wrap" hidden>
+        <table class="fmt"><thead><tr><th>교재명</th><th>주문처</th><th class="r">재고</th><th>결과</th></tr></thead><tbody id="xls-prev"></tbody></table>
+      </div>
+      <button type="button" class="primary" id="xls-go" disabled>파일을 먼저 선택해 주세요</button>
+    </div>
+  </div>
+</dialog>
+
+<dialog class="detail" id="tx-dlg" aria-labelledby="tx-title">
+  <div class="d-head">
+    <div><h2 id="tx-title">입출고 기록</h2><p>기록하면 재고에 바로 반영됩니다.</p></div>
+    <button type="button" class="d-close" data-close="tx-dlg">닫기</button>
+  </div>
+  <div class="d-body" id="tx-slot"></div>
+</dialog>
+
+<dialog class="detail" id="list-dlg" aria-labelledby="list-title">
+  <div class="d-head">
+    <div><h2 id="list-title"></h2><p id="list-sub"></p></div>
+    <button type="button" class="d-close" data-close="list-dlg">닫기</button>
+  </div>
+  <div class="d-body"><ul class="b-list" id="list-body"></ul></div>
+</dialog>
+
+<dialog class="detail" id="detail" aria-labelledby="d-title">
+  <div class="d-head">
+    <div><h2 id="d-title"></h2><p id="d-sub"></p></div>
+    <button type="button" class="d-close" id="d-close">닫기</button>
+  </div>
+  <div class="d-body" id="d-body"></div>
+</dialog>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
