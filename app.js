@@ -5,7 +5,7 @@ var configured = !!(cfg.SUPABASE_URL && cfg.SUPABASE_ANON_KEY && window.supabase
   cfg.SUPABASE_URL.indexOf("여기에") === -1 && cfg.SUPABASE_ANON_KEY.indexOf("여기에") === -1;
 var db = configured ? window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY) : null;
 
-var suppliers = [], books = [], txs = [], stockMap = {}, detailTx = null;
+var suppliers = [], books = [], txs = [], plans = [], stockMap = {}, detailTx = null;
 var filter = "all", query = "", lastTxId = null, detailId = null, busy = false, currentUser = null;
 var LOG_LIMIT = 100;
 function supplierOf(book) { return suppliers.find(function (s) { return s.id === book.supplier_id; }) || null; }
@@ -33,6 +33,7 @@ async function save(task) {
   try { await task(); }
   catch (e) {
     console.error(e);
+    Array.prototype.forEach.call(document.querySelectorAll("dialog[open]"), function (d) { d.close(); });
     showErr(errText(e));
     if (task !== loadAll) { try { await loadAll(); } catch (e2) { console.error(e2); } }
   }
@@ -43,16 +44,19 @@ async function loadAll() {
     db.from("suppliers").select("*").order("name"),
     db.from("books").select("*").order("title"),
     db.from("book_stock").select("*"),
-    db.from("transactions").select("*").order("date", { ascending: false }).order("id", { ascending: false }).limit(LOG_LIMIT)
+    db.from("transactions").select("*").order("date", { ascending: false }).order("id", { ascending: false }).limit(LOG_LIMIT),
+    db.from("order_plans").select("*").gte("date", ymd(new Date(new Date().getFullYear() - 1, new Date().getMonth(), 1))).order("date").order("id")
   ]);
   suppliers = need(r[0]); books = need(r[1]);
   stockMap = {};
   need(r[2]).forEach(function (s) { stockMap[s.book_id] = { in: Number(s.total_in) || 0, out: Number(s.total_out) || 0 }; });
   txs = need(r[3]);
+  plans = need(r[4]);
   renderSupSelect();
   render();
   if ($("detail").open) { renderDetail(); loadDetailTx(detailId); }
   if ($("sup-dlg").open) renderSup();
+  if ($("plan-dlg").open) renderPlanDlg();
 }
 async function loadDetailTx(id) {
   try {
@@ -70,10 +74,11 @@ function esc(s) {
   });
 }
 function fmt(n) { return n.toLocaleString("ko-KR"); }
-function today() {
-  var d = new Date();
+function ymd(d) {
   return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
 }
+function today() { return ymd(new Date()); }
+function parseYmd(s) { var p = String(s).split("-"); return new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2])); }
 
 function totals(bookId) {
   var s = stockMap[bookId] || { in: 0, out: 0 };
@@ -311,6 +316,101 @@ function render() {
   renderPreview();
   renderLog();
   renderVendors();
+  renderCalendar();
+  renderTodo();
+}
+
+// ---------- 주문 일정 ----------
+var calY = new Date().getFullYear(), calM = new Date().getMonth(), planDate = null, planEditId = null;
+var WEEK = ["일", "월", "화", "수", "목", "금", "토"];
+function dayLabel(s) {
+  var d = parseYmd(s);
+  return d.getFullYear() + "년 " + (d.getMonth() + 1) + "월 " + d.getDate() + "일 (" + WEEK[d.getDay()] + ")";
+}
+function dday(s) {
+  var n = Math.round((parseYmd(s) - parseYmd(today())) / 86400000);
+  if (n === 0) return { text: "오늘", cls: "low" };
+  if (n < 0) return { text: -n + "일 지남", cls: "none" };
+  return { text: "D-" + n, cls: "ok" };
+}
+function planSupName(p) {
+  var sp = suppliers.find(function (x) { return x.id === p.supplier_id; });
+  return sp ? sp.name : "";
+}
+function renderCalendar() {
+  var t = today(), first = new Date(calY, calM, 1), start = new Date(calY, calM, 1 - first.getDay());
+  var weeks = Math.ceil((first.getDay() + new Date(calY, calM + 1, 0).getDate()) / 7);
+  var byDate = {};
+  plans.forEach(function (p) { (byDate[p.date] = byDate[p.date] || []).push(p); });
+  $("cal-title").textContent = calY + "년 " + (calM + 1) + "월";
+  var out = WEEK.map(function (w, i) { return '<div class="wd' + (i === 0 ? " sun" : "") + '">' + w + '</div>'; }).join("");
+  for (var i = 0; i < weeks * 7; i++) {
+    var d = new Date(start.getFullYear(), start.getMonth(), start.getDate() + i), key = ymd(d);
+    var list = byDate[key] || [];
+    var open = list.filter(function (p) { return !p.done; }).length;
+    var late = key < t;
+    out += '<button type="button" class="day' + (d.getMonth() !== calM ? " other" : "") + (key === t ? " today" : "") + (d.getDay() === 0 ? " sun" : "") +
+      '" data-date="' + key + '" aria-label="' + esc(dayLabel(key)) + (list.length ? ", 일정 " + list.length + "건" : "") + '">' +
+      '<span class="dn">' + d.getDate() + '</span>' +
+      list.slice(0, 3).map(function (p) {
+        return '<span class="ev' + (p.done ? " done" : (late ? " late" : "")) + '">' + esc(p.title) + '</span>';
+      }).join("") +
+      (list.length > 3 ? '<span class="more">외 ' + (list.length - 3) + '건</span>' : '') +
+      (list.length ? '<span class="cnt' + (open ? (late ? " late" : "") : " alldone") + '">' + list.length + '</span>' : '') +
+      '</button>';
+  }
+  $("cal").innerHTML = out;
+  var due = plans.filter(function (p) { return !p.done && p.date <= t; }).length;
+  $("cal-badge").textContent = due;
+  $("cal-badge").hidden = due === 0;
+}
+function planLi(p, withDate) {
+  var sup = planSupName(p), dd = dday(p.date);
+  var sub = [withDate ? dayLabel(p.date) : "", sup, p.memo].filter(Boolean).join(" · ");
+  return '<li class="' + (p.done ? "done" : "") + '">' +
+    '<input type="checkbox" data-plan-done="' + p.id + '"' + (p.done ? " checked" : "") + ' aria-label="주문 완료 표시">' +
+    (withDate
+      ? '<button type="button" class="daybtn pt" data-date="' + p.date + '">' + esc(p.title) + (sub ? '<small>' + esc(sub) + '</small>' : '') + '</button>' +
+        '<span class="pill ' + dd.cls + '">' + dd.text + '</span>'
+      : '<span class="pt">' + esc(p.title) + (sub ? '<small>' + esc(sub) + '</small>' : '') + '</span>' +
+        '<span class="acts"><button type="button" class="mini" data-plan-edit="' + p.id + '">수정</button>' +
+        '<button type="button" class="mini" data-plan-del="' + p.id + '">삭제</button></span>') +
+    '</li>';
+}
+function renderTodo() {
+  var list = plans.filter(function (p) { return !p.done; });
+  $("todo-count").textContent = list.length ? fmt(list.length) + "건" : "";
+  $("todo").innerHTML = list.map(function (p) { return planLi(p, true); }).join("") ||
+    '<li class="none">해야 할 주문이 없습니다. 달력에서 날짜를 눌러 일정을 넣어 보세요.</li>';
+}
+function resetPlanForm(supId) {
+  planEditId = null;
+  $("pf-head").textContent = "일정 추가";
+  $("pf-save").textContent = "일정 추가하기";
+  $("pf-cancel").hidden = true;
+  $("p-title").value = ""; $("p-memo").value = "";
+  $("p-date").value = planDate;
+  $("p-sup").innerHTML = '<option value="">선택 안 함</option>' + suppliers.map(function (x) { return '<option value="' + x.id + '">' + esc(x.name) + '</option>'; }).join("");
+  $("p-sup").value = supId ? String(supId) : "";
+}
+function renderPlanDlg() {
+  var list = plans.filter(function (p) { return p.date === planDate; });
+  $("pl-title").textContent = dayLabel(planDate);
+  $("pl-sub").textContent = list.length ? "일정 " + list.length + "건 · 주문을 마치면 체크해 주세요" : "아직 일정이 없습니다";
+  $("pl-list").hidden = list.length === 0;
+  $("pl-list").innerHTML = list.map(function (p) { return planLi(p, false); }).join("");
+}
+function openPlan(date, supId) {
+  planDate = date;
+  resetPlanForm(supId);
+  renderPlanDlg();
+  openDlg("plan-dlg");
+}
+function togglePlan(id, done) {
+  save(async function () {
+    need(await db.from("order_plans").update({ done: done }).eq("id", id));
+    await loadAll();
+  });
 }
 
 // 업체 관리 화면
@@ -353,7 +453,7 @@ function renderSup() {
   $("sv-title").textContent = sp ? sp.name : "주문처 미지정";
   $("sv-sub").textContent = "담당 교재 " + fmt(list.length) + "종 · 주문 필요 " + fmt(need.length) + "종";
   var info = sp
-    ? '<div class="d-sec"><div class="sec-head"><h3>업체 정보</h3><button type="button" class="mini" data-editsup="' + sp.id + '">정보 수정</button></div>' +
+    ? '<div class="d-sec"><div class="sec-head"><h3>업체 정보</h3><span style="display:flex;gap:6px"><button type="button" class="mini" data-plan-sup="' + sp.id + '">주문 일정 추가</button><button type="button" class="mini" data-editsup="' + sp.id + '">정보 수정</button></span></div>' +
         (incomplete(sp) ? '<div class="notice low">연락처, 사이트, 주문 방법이 아직 입력되지 않았습니다.</div>' : '') +
         '<dl class="info">' +
         '<dt>담당자</dt><dd>' + contactsHtml(sp) + '</dd>' +
@@ -521,6 +621,70 @@ document.querySelectorAll(".views button").forEach(function (b) {
     document.querySelectorAll(".views button").forEach(function (o) { o.setAttribute("aria-pressed", String(o === b)); });
     $("view-stock").hidden = v !== "stock";
     $("view-vendors").hidden = v !== "vendors";
+    $("view-calendar").hidden = v !== "calendar";
+  });
+});
+
+// 주문 일정
+$("cal-prev").addEventListener("click", function () { calM--; if (calM < 0) { calM = 11; calY--; } renderCalendar(); });
+$("cal-next").addEventListener("click", function () { calM++; if (calM > 11) { calM = 0; calY++; } renderCalendar(); });
+$("cal-today").addEventListener("click", function () { var d = new Date(); calY = d.getFullYear(); calM = d.getMonth(); renderCalendar(); });
+$("plan-add").addEventListener("click", function () { openPlan(today(), null); $("p-title").focus(); });
+$("cal").addEventListener("click", function (e) {
+  var b = e.target.closest("button[data-date]");
+  if (b) openPlan(b.getAttribute("data-date"), null);
+});
+$("todo").addEventListener("click", function (e) {
+  var b = e.target.closest("button[data-date]");
+  if (b) openPlan(b.getAttribute("data-date"), null);
+});
+["todo", "pl-list"].forEach(function (id) {
+  $(id).addEventListener("change", function (e) {
+    if (!e.target.hasAttribute("data-plan-done")) return;
+    togglePlan(Number(e.target.getAttribute("data-plan-done")), e.target.checked);
+  });
+});
+$("pl-list").addEventListener("click", function (e) {
+  var t = e.target.closest("button");
+  if (!t) return;
+  if (t.hasAttribute("data-plan-edit")) {
+    var p = plans.find(function (x) { return x.id === Number(t.getAttribute("data-plan-edit")); });
+    if (!p) return;
+    planEditId = p.id;
+    $("pf-head").textContent = "일정 수정";
+    $("pf-save").textContent = "수정 내용 저장하기";
+    $("pf-cancel").hidden = false;
+    $("p-title").value = p.title; $("p-memo").value = p.memo || "";
+    $("p-date").value = p.date; $("p-sup").value = p.supplier_id ? String(p.supplier_id) : "";
+    $("p-title").focus();
+    return;
+  }
+  if (t.hasAttribute("data-plan-del")) {
+    if (!t.hasAttribute("data-armed")) { t.setAttribute("data-armed", "1"); t.textContent = "한 번 더"; return; }
+    var id = Number(t.getAttribute("data-plan-del"));
+    save(async function () {
+      need(await db.from("order_plans").delete().eq("id", id));
+      if (planEditId === id) resetPlanForm(null);
+      await loadAll();
+    });
+  }
+});
+$("pf-cancel").addEventListener("click", function () { resetPlanForm(null); });
+$("plan-dlg").addEventListener("click", function (e) { if (e.target === $("plan-dlg")) closeDlg("plan-dlg"); });
+$("plan-form").addEventListener("submit", function (e) {
+  e.preventDefault();
+  var title = $("p-title").value.trim(), date = $("p-date").value;
+  if (!title || !date) return;
+  var fields = { title: title, date: date, supplier_id: Number($("p-sup").value) || null, memo: $("p-memo").value.trim() };
+  var editId = planEditId;
+  save(async function () {
+    if (editId) need(await db.from("order_plans").update(fields).eq("id", editId));
+    else need(await db.from("order_plans").insert(fields));
+    planDate = date;
+    var d = parseYmd(date);
+    calY = d.getFullYear(); calM = d.getMonth();
+    resetPlanForm(null);
+    await loadAll();
   });
 });
 
@@ -536,6 +700,7 @@ $("sup-dlg").addEventListener("click", function (e) {
   if (!t) return;
   if (t.hasAttribute("data-detail")) { closeDlg("sup-dlg"); openDetail(Number(t.getAttribute("data-detail"))); return; }
   if (t.hasAttribute("data-editsup")) { closeDlg("sup-dlg"); openSupEdit(Number(t.getAttribute("data-editsup")), "sup"); return; }
+  if (t.hasAttribute("data-plan-sup")) { closeDlg("sup-dlg"); openPlan(today(), Number(t.getAttribute("data-plan-sup"))); $("p-title").focus(); return; }
   if (t.hasAttribute("data-need")) { supNeedOnly = t.getAttribute("data-need") === "1"; renderSup(); return; }
   if (t.hasAttribute("data-move")) {
     var ids = Array.prototype.map.call($("sv-body").querySelectorAll(".checks input:checked"), function (c) { return Number(c.value); });

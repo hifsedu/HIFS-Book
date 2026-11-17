@@ -266,6 +266,52 @@ small.c-role { display: block; color: var(--muted); font-size: 12.5px; }
 dl.info a, .help a { color: var(--accent); text-underline-offset: 3px; }
 @media (max-width: 640px) { .c-row .mini { min-height: 44px; } }
 
+/* 주문 일정 달력 */
+.navbtns { display: flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.navbtns button { border: 0; background: var(--surface); color: var(--ink); font: inherit; font-size: 13px; padding: 6px 12px; cursor: pointer; }
+.navbtns button + button { border-left: 1px solid var(--line); }
+.navbtns button:hover { color: var(--accent); }
+.views .tag { margin-left: 6px; }
+.cal { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
+.cal .wd { padding: 8px 10px; font-size: 12.5px; color: var(--muted); border-bottom: 1px solid var(--line); }
+.cal .wd.sun, .cal .day.sun .dn { color: var(--crit); }
+.cal .day { min-height: 104px; border: 0; border-bottom: 1px solid var(--line); border-right: 1px solid var(--line); background: var(--surface); font: inherit; color: var(--ink); text-align: left; padding: 6px; cursor: pointer; display: flex; flex-direction: column; gap: 3px; align-items: stretch; min-width: 0; }
+.cal .day:nth-child(7n) { border-right: 0; }
+.cal .day:hover { background: var(--sunken); }
+.cal .day.other { background: var(--sunken); }
+.cal .day.other .dn { opacity: .45; }
+.cal .dn { font-family: var(--font-num); font-size: 13px; font-weight: 600; width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; }
+.cal .day.today .dn { background: var(--accent); color: var(--accent-ink); }
+.cal .ev { font-size: 12.5px; line-height: 1.35; padding: 2px 6px; border-radius: 5px; background: var(--accent-soft); color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cal .ev.late { background: var(--warn-soft); color: var(--warn); }
+.cal .ev.done { background: transparent; color: var(--muted); text-decoration: line-through; }
+.cal .more { font-size: 12px; color: var(--muted); padding-left: 6px; }
+.cal .cnt { display: none; }
+.plan-list { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: 10px; }
+.plan-list.flush { border: 0; border-radius: 0; }
+.plan-list li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 4px 12px; align-items: center; padding: 11px 14px; border-bottom: 1px solid var(--line); }
+.plan-list li:last-child { border-bottom: 0; }
+.plan-list li.none { display: block; color: var(--muted); text-align: center; padding: 18px 12px; }
+.plan-list input[type="checkbox"] { width: 20px; height: 20px; accent-color: var(--in); cursor: pointer; }
+.plan-list .pt { font-weight: 600; overflow-wrap: anywhere; }
+.plan-list .pt small { display: block; font-weight: 400; font-size: 12.5px; color: var(--muted); }
+.plan-list li.done .pt { color: var(--muted); text-decoration: line-through; }
+.plan-list li.done .pt small { text-decoration: none; }
+.plan-list .acts { display: flex; gap: 6px; align-items: center; }
+.plan-list .daybtn { font-weight: 600; border: 0; background: none; padding: 0; font-family: inherit; font-size: inherit; color: inherit; text-align: left; cursor: pointer; width: 100%; }
+#plan-form h3 { margin: 0; font-size: 14px; }
+@media (max-width: 640px) {
+  .navbtns { flex: 1; }
+  .navbtns button { flex: 1; padding: 10px 6px; font-size: 14px; }
+  .cal .day { min-height: 58px; padding: 4px 2px; align-items: center; gap: 2px; }
+  .cal .wd { padding: 6px 0; text-align: center; }
+  .cal .ev, .cal .more { display: none; }
+  .cal .cnt { display: inline-flex; min-width: 20px; height: 20px; padding: 0 5px; align-items: center; justify-content: center; border-radius: 999px; font-family: var(--font-num); font-size: 12px; font-weight: 600; background: var(--accent-soft); color: var(--accent); }
+  .cal .cnt.late { background: var(--warn-soft); color: var(--warn); }
+  .cal .cnt.alldone { background: transparent; color: var(--muted); }
+  .plan-list .acts .mini { min-height: 40px; }
+}
+
 /* 교재 추가 */
 details.add { border-top: 1px solid var(--line); }
 details.add summary { cursor: pointer; padding: 12px 16px; color: var(--accent); font-weight: 500; font-size: 14px; }
@@ -386,6 +432,7 @@ form label, .field > span { font-size: 13px; color: var(--muted); }
   <nav class="views" aria-label="화면 전환">
     <button type="button" data-view="stock" aria-pressed="true">재고 현황</button>
     <button type="button" data-view="vendors" aria-pressed="false">업체 관리</button>
+    <button type="button" data-view="calendar" aria-pressed="false">주문 일정<span class="tag" id="cal-badge" hidden></span></button>
   </nav>
 
   <div class="view" id="view-stock">
@@ -462,6 +509,27 @@ form label, .field > span { font-size: 13px; color: var(--muted); }
   </div>
   </div>
 
+  <div class="view" id="view-calendar" hidden>
+    <section class="panel" aria-labelledby="cal-title">
+      <div class="panel-head">
+        <h2 id="cal-title"></h2>
+        <div class="tools">
+          <div class="navbtns" role="group" aria-label="달 이동">
+            <button type="button" id="cal-prev">이전 달</button>
+            <button type="button" id="cal-today">오늘</button>
+            <button type="button" id="cal-next">다음 달</button>
+          </div>
+          <button type="button" class="primary sm" id="plan-add">+ 일정 추가</button>
+        </div>
+      </div>
+      <div class="cal" id="cal"></div>
+    </section>
+    <section class="panel" aria-labelledby="h-todo">
+      <div class="panel-head"><h2 id="h-todo">해야 할 주문</h2><span class="hint" id="todo-count"></span></div>
+      <ul class="plan-list flush" id="todo"></ul>
+    </section>
+  </div>
+
   <div class="view" id="view-vendors" hidden>
     <section class="panel" aria-labelledby="h-vendors">
       <div class="panel-head">
@@ -477,6 +545,27 @@ form label, .field > span { font-size: 13px; color: var(--muted); }
     </section>
   </div>
 </div>
+
+<dialog class="detail" id="plan-dlg" aria-labelledby="pl-title">
+  <div class="d-head">
+    <div><h2 id="pl-title"></h2><p id="pl-sub"></p></div>
+    <button type="button" class="d-close" data-close="plan-dlg">닫기</button>
+  </div>
+  <div class="d-body">
+    <ul class="plan-list" id="pl-list"></ul>
+    <form class="form-grid supbox" id="plan-form" autocomplete="off">
+      <h3 class="full" id="pf-head">일정 추가</h3>
+      <div class="field full"><label for="p-title">내용</label><input type="text" id="p-title" required placeholder="예: 겨울특강 교재 주문"></div>
+      <div class="field"><label for="p-date">날짜</label><input type="date" id="p-date" required></div>
+      <div class="field"><label for="p-sup">업체 (선택)</label><select id="p-sup"></select></div>
+      <div class="field full"><label for="p-memo">메모 (선택)</label><input type="text" id="p-memo" placeholder="예: 수학 40권, 영어 25권. 금요일까지 받아야 함"></div>
+      <div class="full" style="display:flex;gap:8px;flex-wrap:wrap">
+        <button type="submit" class="primary" id="pf-save" style="flex:1">일정 추가하기</button>
+        <button type="button" class="ghost" id="pf-cancel" hidden>수정 취소</button>
+      </div>
+    </form>
+  </div>
+</dialog>
 
 <dialog class="detail" id="sup-dlg" aria-labelledby="sv-title">
   <div class="d-head">

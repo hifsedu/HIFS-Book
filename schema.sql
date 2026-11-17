@@ -40,6 +40,19 @@ create index transactions_book_id_idx on public.transactions (book_id);
 create index transactions_date_idx on public.transactions (date desc, id desc);
 create index books_supplier_id_idx on public.books (supplier_id);
 
+-- 3-1) 주문 일정 (달력에 넣는 일정. 업체를 지우면 일정은 남고 업체만 비워집니다)
+create table public.order_plans (
+  id          bigint generated always as identity primary key,
+  date        date not null,
+  title       text not null,
+  supplier_id bigint references public.suppliers (id) on delete set null,
+  memo        text not null default '',
+  done        boolean not null default false,
+  created_at  timestamptz not null default now()
+);
+create index order_plans_date_idx on public.order_plans (date);
+create index order_plans_supplier_id_idx on public.order_plans (supplier_id);
+
 -- 4) 교재별 누적 입고, 누적 출고 (현재 재고 = total_in - total_out)
 create view public.book_stock
 with (security_invoker = true) as
@@ -96,6 +109,7 @@ for each row execute function public.check_stock_not_negative();
 alter table public.suppliers    enable row level security;
 alter table public.books        enable row level security;
 alter table public.transactions enable row level security;
+alter table public.order_plans  enable row level security;
 
 create policy "로그인한 사용자만" on public.suppliers
   for all to authenticated using (true) with check (true);
@@ -103,9 +117,11 @@ create policy "로그인한 사용자만" on public.books
   for all to authenticated using (true) with check (true);
 create policy "로그인한 사용자만" on public.transactions
   for all to authenticated using (true) with check (true);
+create policy "로그인한 사용자만" on public.order_plans
+  for all to authenticated using (true) with check (true);
 
-revoke all on public.suppliers, public.books, public.transactions, public.book_stock from anon;
-grant select, insert, update, delete on public.suppliers, public.books, public.transactions to authenticated;
+revoke all on public.suppliers, public.books, public.transactions, public.order_plans, public.book_stock from anon;
+grant select, insert, update, delete on public.suppliers, public.books, public.transactions, public.order_plans to authenticated;
 grant select on public.book_stock to authenticated;
 
 commit;
